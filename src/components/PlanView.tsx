@@ -10,7 +10,6 @@ export interface BatchState {
 
 interface Props {
   plan: ShootPlan
-  onBack: () => void
   /** 是否配置了生图模型 */
   canGen: boolean
   /** 正在生成参考片的画面 key（`${sceneIdx}-${shotIdx}`） */
@@ -23,7 +22,6 @@ interface Props {
 
 export default function PlanView({
   plan,
-  onBack,
   canGen,
   shotBusy,
   batch,
@@ -129,14 +127,8 @@ export default function PlanView({
         </section>
       ))}
 
-      {/* 步骤条已占掉顶部，这里给个明确出口 */}
-      <div className="flex flex-col items-center gap-2 pb-4">
-        <button
-          onClick={onBack}
-          className="rounded-xl border border-neutral-200 px-4 py-2 text-sm text-neutral-600"
-        >
-          去「我的策划」看全部
-        </button>
+      {/* 步骤条已占掉顶部，这里只留一句落款，出口统一在顶部的「我的策划」 */}
+      <div className="flex flex-col items-center pb-4">
         <p className="text-center text-xs text-neutral-300">出片助手 · AI 拍摄策划</p>
       </div>
     </div>

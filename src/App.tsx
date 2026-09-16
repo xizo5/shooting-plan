@@ -75,6 +75,12 @@ export default function App() {
   /** 生成完成后的成功提示（区别于 error/notice，带关闭按钮） */
   const [toast, setToast] = useState<string | null>(null)
   /**
+   * 本次生成对应的前置条件快照。
+   * 生成立刻切到第 3 步，确认页被卸载，所以不能在那儿读 `discussBrief` 兜底 ——
+   * 万一进入生成时草案还没同步，生成就会悄悄漏掉约定。这里在按下按钮时先钉一份。
+   */
+  const [pendingBrief, setPendingBrief] = useState<Brief>(EMPTY_DRAFT)
+  /**
    * 生成锁。state 更新是异步的，狂点按钮时下一次点击可能在重渲染前就进来了 ——
    * ref 是同步的，用它兜住，state 只负责 UI 禁用态。
    */
@@ -276,7 +282,10 @@ export default function App() {
     setError(null)
     setNotice(null)
     setToast(null)
+    setPendingBrief(b)
+    // 生成一开始就踏上第 3 步：动画画在 step3 里，确认页不再被撑长
     setStage('directions')
+    setView('generating')
     const hasImages = b.referenceImages.length > 0
     let notices: string[] = []
     try {
@@ -328,6 +337,8 @@ export default function App() {
       )
     } catch (err) {
       setError(err instanceof Error ? err.message : '生成失败，请重试')
+      // 失败退回第 2 步：约定还在，改两笔就能重试，不必重新聊一遍
+      setView('confirm')
     } finally {
       generating.current = false
       setStage(null)
@@ -412,7 +423,7 @@ export default function App() {
    * 讨论页要"头尾固定、中间独立滚动"，所以整页得锁成 dvh 高度、禁止外层滚动；
    * 其他页面内容可能很长，仍按整页滚动处理。
    */
-  const locked = view === 'discuss'
+  const locked = view === 'discuss' || view === 'generating'
 
   return (
     <div
@@ -472,14 +483,9 @@ export default function App() {
       </div>
 
 
-      {view === 'brief' &&
-        (stage === 'directions' ? (
-          <CardsLoading />
-        ) : stage === 'expand' ? (
-          <PlanLoading count={3} />
-        ) : (
-          <BriefForm value={draft} onChange={setDraft} onSubmit={startDiscuss} busy={discussing} />
-        ))}
+      {view === 'brief' && (
+        <BriefForm value={draft} onChange={setDraft} onSubmit={startDiscuss} busy={discussing} />
+      )}
 
       {view === 'discuss' && (
         // min-h-0 是必须的：flex 子项默认 min-height:auto，不加就撑破父级、滚动条跑到整页上去
@@ -500,13 +506,13 @@ export default function App() {
       {view === 'confirm' &&
         (consensus ? (
           <Confirm
-            brief={discussBrief}
+            brief={pendingBrief}
             consensus={consensus}
-            generating={stage !== null}
             onChange={updateConsensus}
             onConfirm={() => {
-              // 双保险：按钮本身会置灰，这里再挡一次连点
-              if (stage === null) generateAll(discussBrief, consensus)
+              // 双保险：按钮本身靠 ref 锁互斥，这里再挡一次连点。
+              // 用 generating ref 而非 stage —— 同一批点击里 state 还没更新
+              if (!generating.current) generateAll(discussBrief, consensus)
             }}
             onBackToDiscuss={backToDiscuss}
           />
@@ -525,10 +531,25 @@ export default function App() {
           </div>
         ))}
 
-      {/* 生成中：第 2 步原地切到等待动画，用户知道点到了、正在干活 */}
-      {view === 'confirm' && stage !== null && (
-        <div className="mt-5">
-          {stage === 'directions' ? <CardsLoading /> : <PlanLoading count={3} />}
+      {/* 第 3 步·生成中：等待动画独占一屏，头尾固定、中间独立滚动 */}
+      {view === 'generating' && (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain pb-6">
+            {stage === 'directions' ? <CardsLoading fill /> : <PlanLoading count={3} fill />}
+          </div>
+          <div className="shrink-0 border-t border-neutral-200/70 pb-4 pt-3">
+            {/* 出口固定住：真卡住了不至于困在这一屏 */}
+            <button
+              onClick={() => {
+                generating.current = false
+                setStage(null)
+                setView('confirm')
+              }}
+              className="w-full rounded-xl py-2.5 text-sm text-neutral-500"
+            >
+              不想等了，回上一步
+            </button>
+          </div>
         </div>
       )}
 
@@ -553,7 +574,6 @@ export default function App() {
           )}
           <PlanView
             plan={plan}
-            onBack={() => nav('library')}
             canGen={!!config?.imageGen}
             shotBusy={shotBusy}
             batch={batch}

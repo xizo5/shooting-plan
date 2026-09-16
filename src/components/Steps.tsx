@@ -15,11 +15,16 @@ const STEPS: Array<{ n: Step; label: string }> = [
   { n: 3, label: '出方案' },
 ]
 
-/** 当前 View 对应第几步；library 不属于流程，返回 null 表示不显示步骤条 */
-export function stepOf(view: View): Step | null {
+/**
+ * 当前 View 对应第几步；library 不属于流程，返回 null 表示不显示步骤条。
+ *
+ * 第三格用 `'plan' | 'generating'`（生成中）两个 view —— 生成是第 3 步的动作，
+ * 等待动画必须画在第 3 格里。若还挂在第 2 步，长动画会把确认页撑长且看起来没往前走。
+ */
+export function stepOf(view: View | 'generating'): Step | null {
   if (view === 'brief' || view === 'discuss') return 1
   if (view === 'confirm') return 2
-  if (view === 'plan') return 3
+  if (view === 'plan' || view === 'generating') return 3
   return null
 }
 

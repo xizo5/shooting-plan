@@ -69,11 +69,15 @@ export function TypingDots({ className = '' }: { className?: string }) {
   )
 }
 
-/** 生成中的统一外框：动画 + 轮换文案 */
-function LoadingShell({ steps, hint }: { steps: string[]; hint?: string }) {
+/** 生成中的统一外框：动画 + 轮换文案。独占一屏时由外面加 `fill` 纵向居中 */
+function LoadingShell({ steps, hint, fill }: { steps: string[]; hint?: string; fill?: boolean }) {
   const step = useRotatingStep(steps)
   return (
-    <div className="flex flex-col items-center gap-4 rounded-2xl border border-neutral-200 bg-white px-6 py-12 text-center">
+    <div
+      className={`flex flex-col items-center gap-4 rounded-2xl border border-neutral-200 bg-white px-6 text-center ${
+        fill ? 'h-full justify-center py-10' : 'py-12'
+      }`}
+    >
       <CameraBuddy />
       <div className="space-y-1.5">
         <p className="text-sm font-medium text-neutral-800">正在为你写方案</p>
@@ -88,9 +92,10 @@ function LoadingShell({ steps, hint }: { steps: string[]; hint?: string }) {
 }
 
 /** 生成场景方案时的等待态 */
-export function CardsLoading() {
+export function CardsLoading({ fill }: { fill?: boolean } = {}) {
   return (
     <LoadingShell
+      fill={fill}
       steps={[
         '正在理解你的主题和参考图…',
         '构思几个不同的拍摄场景…',
@@ -101,9 +106,10 @@ export function CardsLoading() {
 }
 
 /** 展开多套完整策划时的等待态 */
-export function PlanLoading({ count }: { count: number }) {
+export function PlanLoading({ count, fill }: { count: number; fill?: boolean }) {
   return (
     <LoadingShell
+      fill={fill}
       steps={[
         '按拍摄动线安排场景…',
         '把姿势写到「手放哪、眼睛看哪」…',

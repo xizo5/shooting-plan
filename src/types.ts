@@ -104,4 +104,9 @@ export interface ModelConfig {
   imageGen?: ImageGenConfig | null
 }
 
-export type View = 'brief' | 'discuss' | 'confirm' | 'plan' | 'library'
+/**
+ * 页面。`'generating'` 不是一个真页面 —— 它是"第 3 步正在生成"这个状态，
+ * 用来把等待动画渲染在 step3 里（否则长动画会挂在 step2 底下把确认页撑长）。
+ * 生成成功即切到 plan，失败才退回 confirm。
+ */
+export type View = 'brief' | 'discuss' | 'confirm' | 'generating' | 'plan' | 'library'

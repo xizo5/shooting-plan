@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test:sse": "node scripts/test-sse.mjs"
+    "test:sse": "node scripts/test-sse.mjs",
+    "test:steps": "node scripts/test-steps.mjs",
+    "test": "npm run test:sse && npm run test:steps"
   },
   "dependencies": {
     "react": "^18.3.1",

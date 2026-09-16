@@ -27,23 +27,31 @@ step 1  说想法（view: brief → discuss）
 step 2  定约定（view: confirm）—— Discuss 与 Confirm 的分界线
   │    ├→ 独立页面，**不带聊天记录**：只放约定本身，加字段可编辑
   │    ├→ 字段失焦才 setConsensus（边打字边同步会触发 App 重渲染，长文本卡）
-  │    └→ 用户点「就按这个生成」
+  │    └→ 用户点「就按这个生成」→ 立刻离开本页
   │
-step 3  出方案（view: plan）
+step 3  出方案（view: generating → plan）
   │
+  │    ┌ 等待态 view: generating —— 动画独占一屏，不在确认页里就地展开
+  │    │   （挂在 confirm 底下会把页面撑长，且看着像没往前走）
+  │    │   上下固定、中间独立滚，底部留「不想等了」出口
+  │    │
   ├─ 阶段 1  chatJson(cardsSystem, cardsUserPrompt(text, hasImages, consensus))   【快】
-  │    ├→ brief.{theme,location,time,people}   由 AI 从文本+图片解析回填
-  │    └→ directions: StyleDirection[]         **同一调性下的 3 个场景变体**（不是 3 个风格）
+  │    └→ stage: 'directions' → 渲染 CardsLoading
   │
   ├─ 阶段 2  Promise.allSettled 并行展开每个变体                  【慢，总耗时≈单套】
-  │    └→ ShootPlan（含 scenes[] 完整策划）
+  │    ├→ stage: 'expand' → 渲染 PlanLoading
+  │    ├→ brief.{theme,location,time,people}   由 AI 从文本+图片解析回填
+  │    └→ directions: StyleDirection[]         **同一调性下的 3 个场景变体**（不是 3 个风格）
+  │         · ShootPlan（含 scenes[] 完整策划）
   │         · 单个变体失败不影响其他，成功几套展示几套
   │         · 全部失败才报错
   │
-  ├─ savePlan() 落 localStorage → 展示，顶部胶囊切换 3 套
+  ├─ savePlan() 落 localStorage → view: plan，顶部胶囊切换 3 套
   │
   └─ 参考片按需生成：单张（produceImage）或批量（runBatch，可中断）
 ```
+
+失败与中断：生成出错时**退回 `confirm`**（不是留在 generating），约定还在，改两笔就能重试；用户点「不想等了」同样回 `confirm`。成功走 `plan`，不会退回。
 
 **步骤条与 View 的映射**写在 `Steps.tsx` 的 `stepOf()` 里，加/改步骤只改那一处。`library` 不属于流程，`stepOf` 返回 `null`（不显示步骤条）。
 
@@ -59,9 +67,12 @@ step 3  出方案（view: plan）
 2. **单个事件解析失败只跳过**，不能让一个坏 JSON 拖垮整段回复。
 3. **厂商不支持流式时要退化**：content-type 不是 event-stream，或直接返回了完整 JSON，就一次性读完并调一次 onDelta。判断依据是 content-type 而不是试错。
 
-**生成防抖**：`generateAll` 用 `generating`（**ref，不是 state**）做互斥锁。state 更新是异步的，狂点按钮时下一次点击可能在重渲染前就进来了，只有 ref 挡得住；state 那份只负责 UI 禁用态。生成成功后在策划页顶部给一条绿色 toast（几套成功 + 已存到哪），因为页面直接跳走了，没反馈用户会以为没点上。
+**生成防抖**：`generateAll` 用 `generating`（**ref，不是 state**）做互斥锁。state 更新是异步的，狂点按钮时下一次点击可能在重渲染前就进来了，只有 ref 挡得住。**生成中跳走后就没人管 state 了，所以互斥判断必须用 ref 而不能指望 `stage` / `view`** —— `Confirm` 的 `onConfirm` 就是这么挡的。生成成功后在策划页顶部给一条绿色 toast（几套成功 + 已存到哪），因为页面直接跳走了，没反馈用户会以为没点上。
 
-**测试接缝**：`src/lib/llm.ts` 末尾导出 `__test = { readStream }`。`npm run test:sse`（`scripts/test-sse.mjs`）用 esbuild 编译该文件后喂各种分块方式验证 SSE 解析：逐字节、CRLF、坏 JSON、`[DONE]`、非标准 `message.content`、不支持流式的降级。改 `readStream` 后跑一遍。**别改成用正则剥 TS 类型**——试过，会崩。
+**测试接缝**：两处。
+
+1. `src/lib/llm.ts` 末尾导出 `__test = { readStream }`。`npm run test:sse`（`scripts/test-sse.mjs`）用 esbuild 编译该文件后喂各种分块方式验证 SSE 解析：逐字节、CRLF、坏 JSON、`[DONE]`、非标准 `message.content`、不支持流式的降级。改 `readStream` 后跑一遍。**别改成用正则剥 TS 类型**——试过，会崩。
+2. `src/components/Steps.tsx` 的 `stepOf()` 是纯映射（不碰 hooks），`npm run test:steps`（`scripts/test-steps.mjs`）同样用 esbuild 编译后直接 import 断言六种 view 的落点。加页面、改步骤归属后跑。**`'generating'` 必须落到第 3 步** —— 这是回归风险最高的一条。`npm test` 一次跑全两份。
 
 **降级路径（贯穿全流程）**：附图请求失败且确有参考图时，**去掉图片重试一次**，并给用户一条 notice 说明「当前模型看不了图」。上层不应把这类失败当致命错误抛出。讨论环节同样适用（开场与每轮回复都要兜，见 `streamReply`）。
 
@@ -73,6 +84,7 @@ step 3  出方案（view: plan）
 |---|---|---|
 | `Brief` | 输入 | `text` 与 `referenceImages` 由用户给；`theme/location/time/people` 由阶段 1 的 AI 解析回填，展开前可能为空 |
 | `ChatMessage` | 中间产物 | `role: 'user' \| 'assistant'` + `content`，讨论环节的一轮，**不落库**（刷新即丢，可接受） |
+| `View` | 导航 | 六个值：`brief` / `discuss` / `confirm` / **`generating`** / `plan` / `library`。`generating` 不是真页面，是"第 3 步正在生成"的状态，只为把等待动画渲染在第 3 格里 |
 | `Consensus` | 中间产物 | 讨论归纳出的 5 个字段（风格调性/服装/道具/动作与情绪/其他），全字符串、允许为空。`null` 表示还没谈拢 |
 | `StyleDirection` | 中间产物 | `id` + `name`（≤4字）+ `tagline`（≤15字），本身不落库。**语义已收敛**：约定锁定风格后，3 个 direction 是同一调性下的场景变体 |
 | `ShootPlan` | 最终交付物 | `brief` + `directionName` + `title` + `scenes[]`，是 localStorage 里的存储单位 |
@@ -117,7 +129,7 @@ step 3  出方案（view: plan）
 ## 开发循环
 
 1. 改代码 → `npm run build`（tsc 严格检查 + vite 构建）必须零错误。
-2. 动了 `src/lib/llm.ts` 的流式解析 → `npm run test:sse` 必须全绿。
+2. 跑了测试才敢交：`npm test`（含 `test:sse` 与 `test:steps`）必须全绿。动了 `src/lib/llm.ts` 的流式解析必跑 `test:sse`；动了步骤条或 `View` 映射必跑 `test:steps`。
 3. UI 改动用浏览器冒烟：`npm run preview` 起服务，走一遍受影响的页面。**没有真实 key 无法测生成链路**，在 devtools console 注入假策划数据验证展示层：
 
    ```js
@@ -145,6 +157,14 @@ step 3  出方案（view: plan）
 - **CORS 立场**：某厂商浏览器直连被挡时，产品内不解决——引导用户改用「自定义」中转（写进 `.env` 的 `VITE_*_BASE_URL`）。不为单个厂商加代理或变通代码。
 - **唯一测试接缝**：`src/lib/llm.ts` 的 `chatJson` / `chatText` / `chatTextStream` / `generateImage`。所有依赖模型的行为都经这几个函数；写测试的 mock 点只在这里，UI 与纯函数直接测。
 - **动效出口**：所有 `@keyframes` 写在 `src/index.css`，组件里只用 `animate-[名字_时长_缓动_次数]` 引用。别在组件内塞 `<style>`——将来要统一尊重 `prefers-reduced-motion` 时只有一个地方要改（已经加了那条 media query）。
+- **滚动归属：一屏只有一个滚动条**。`App` 的根容器按 view 分两种模式——`discuss` 与 `generating` 时 `h-dvh + overflow-hidden`（整页锁死），其余 view 用 `min-h-dvh`（整页滚动）。这两个 view 内部靠 `flex-col` 三段分：顶部区与底部区 `shrink-0` 固定，只有中间区 `min-h-0 flex-1 overflow-y-auto`。
+
+  三个必须记住的坑：
+  1. **flex 子项要滚动就得加 `min-h-0`**。flex 项默认 `min-height: auto`，不加它子项会被内容撑高、撑破父级，滚动条跑到整页上去。
+  2. **`overflow-y-auto` 的元素本身也得是 `min-h-0` 的 flex 子项**。只给滚动容器加 `overflow-y-auto` 而忘了它是 flex 项，一样撑破——`generating` 那屏的滚动容器就同时挂了 `min-h-0` 和 `flex-1`。
+  3. **自动滚底用容器的 `scrollTop = scrollHeight`，别用 `scrollIntoView`**。后者会连带滚动所有可滚动祖先，在这套嵌套布局里会把整个页面顶起来。参见 `Discuss.tsx` 的 `scrollRef`。
+- **步骤条的宽度**：三格用 `grid-cols-3` 严格等分，**不要给当前步加 `flex` 权重**（试过 `flex: 1.6`，胶囊被撑宽、三格看着不齐）。连接线是左右各画一半的绝对定位线段，接缝自然落在格子边界上。
+- **等待动画挂在哪一步**：第 3 步的等待态必须有自己的 view（`'generating'`），**不要挂在 `confirm` 里**。动画块又高又长，挂在确认页底下既把页面撑长，又让用户觉得"还停在第 2 步"。同理，`LoadingShell` 有 `fill` 参数——独占一屏时传 `fill` 让它纵向居中并自适应高度；内联兜底时（如 `view === 'brief'`）用默认的固定 `py-12`。
 - **标签词汇表耦合**：`src/lib/poses.ts` 的 `POSE_TAGS` 是 prompt（`src/lib/prompts.ts`）里声明给模型的可选集合。改一边必须同步另一边，否则画面对不上插画。当前 15 个标签：单人 7（站/走/坐/跳/背影/回眸/蹲）、双人 8。
 - **localStorage 防御**：参考片等图片进存储前先压缩（现例：768px 参考图、480px 参考片）；`savePlan` 已有超容量逐级丢弃逻辑（30→20→10→5→2→1），新增大体积数据沿用该模式。
 - **生图默认豆包**：参考片默认走火山方舟豆包 Seedream（用户只填 Key），参考图 base64 直传做图生图、响应要 b64_json。生图预设改动集中在 `IMAGE_GEN_PRESETS`（`src/lib/llm.ts`）。
