@@ -52,16 +52,21 @@ Brief（text + ≤4 张参考图）
 - `sp:config` — 单个 `ModelConfig`
 - `sp:plans` — `ShootPlan[]`，最新的在前
 
-## 配置的两层（重要）
+## 配置来源：`.env` 是唯一入口
 
-模型配置有两个来源，**优先级：localStorage > `.env`**：
+**应用内没有设置页**（入口已隐藏）。模型配置全部来自 `.env`，读取顺序：
 
-1. `loadConfig()` 先读 localStorage 的 `sp:config`，**有就直接返回**，完全不看 `.env`。
-2. 本地没有配置时，才由 `configFromEnv()` 从 `import.meta.env` 兜底构造。
+1. `configFromEnv()` 从 `import.meta.env` 构造配置 —— **这是主路径**。
+2. `.env` 没配全时才读 localStorage 的 `sp:config` 兜底。
+3. 特例：`.env` 配了主模型但没配生图（`VITE_IMAGE_API_KEY` 缺失）时，**沿用 localStorage 里遗留的 `imageGen`**，避免升级后参考片功能凭空消失。
 
-这条优先级不能反过来。原因：`.env` 是**构建期**注入的，如果让它压过 localStorage，用户在设置页改中转地址（CORS 降级路径）、临时换厂商就都得改文件重启构建——而 CORS 降级是 `README` 里承诺给用户的自救手段。
+⚠️ 改了 `.env` **必须重启 dev server 或重新构建**才生效——Vite 是构建期注入。
 
-类型声明在 `src/vite-env.d.ts`，新增环境变量必须同步补上，否则 tsc 不认。
+配套约束：
+
+- `src/components/Settings.tsx` 保留但**不在任何导航里可达**。要恢复图形化设置，放开 `App.tsx` 里注释掉的「设置」按钮与 `view === 'settings'` 渲染即可；**同时要把上面这个优先级改回 localStorage 优先**，否则保存了也不生效。
+- 所有指向设置页的错误文案已改为指向 `.env`（`src/lib/llm.ts`、`App.tsx`、`PlanView.tsx`）。新增提示不要再说「去设置页」。
+- 类型声明在 `src/vite-env.d.ts`，新增环境变量必须同步补上，否则 tsc 不认。
 
 ⚠️ **`VITE_*` 会被明文编译进 `dist/` 产物**——这是 Vite 的既定行为，不是 bug。对自己 clone 自己跑的场景可接受（填的是自己的 key），但**带 key 的 `dist/` 不得部署到公开地址**。若将来要提供在线服务，必须改为后端代管 key（即取代 ADR-0001），不能靠 `.env` 硬撑。
 

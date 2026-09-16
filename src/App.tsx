@@ -12,11 +12,10 @@ import {
   normalizeScenes,
 } from './lib/prompts'
 import { compressDataUrl } from './lib/image'
-import { loadConfig, listPlans, saveConfig, savePlan } from './lib/storage'
+import { loadConfig, listPlans, savePlan } from './lib/storage'
 import BriefForm from './components/BriefForm'
 import PlanView from './components/PlanView'
 import Library from './components/Library'
-import Settings from './components/Settings'
 import { CardsLoading, PlanLoading } from './components/Loading'
 
 function uid() {
@@ -30,7 +29,8 @@ type Stage = null | 'directions' | 'expand'
 
 export default function App() {
   const [view, setView] = useState<View>('brief')
-  const [config, setConfig] = useState<ModelConfig | null>(() => loadConfig())
+  /** 模型配置来自 .env（或 localStorage 里的旧配置），运行时不再修改 */
+  const [config] = useState<ModelConfig | null>(() => loadConfig())
   const [plans, setPlans] = useState<ShootPlan[]>([])
   const [draft, setDraft] = useState<Brief>(EMPTY_DRAFT)
   const [stage, setStage] = useState<Stage>(null)
@@ -87,8 +87,7 @@ export default function App() {
   /** 主流程：解析前置条件 + 风格方向 → 并行展开全部方向 → 直接展示多套文字策划 */
   const generateAll = async (b: Brief) => {
     if (!config) {
-      setError('先配置一下模型，再回来生成策划')
-      setView('settings')
+      setError('模型还没配置：请复制 .env.example 为 .env，填入 VITE_API_KEY 与 VITE_MODEL 后重新构建')
       return
     }
     setError(null)
@@ -151,7 +150,7 @@ export default function App() {
   /** 生成单个画面的参考片（附用户参考图做图生图）并落库 */
   const produceImage = async (current: ShootPlan, si: number, i: number): Promise<ShootPlan> => {
     const cfg = imageGenConfig()
-    if (!cfg) throw new LlmError('先到设置里开启参考片生成')
+    if (!cfg) throw new LlmError('生图未启用：在 .env 里填 VITE_IMAGE_API_KEY 与 VITE_IMAGE_MODEL 后重新构建')
     const shot = current.scenes[si].shots[i]
     let out = await generateImage(
       cfg,
@@ -225,12 +224,6 @@ export default function App() {
           >
             我的策划
           </button>
-          <button
-            onClick={() => nav('settings')}
-            className="rounded-lg px-3 py-1.5 text-sm text-neutral-600 hover:bg-neutral-200/60"
-          >
-            设置
-          </button>
         </nav>
       </header>
 
@@ -303,16 +296,11 @@ export default function App() {
         />
       )}
 
-      {view === 'settings' && (
-        <Settings
-          config={config}
-          onSave={(c) => {
-            setConfig(c)
-            saveConfig(c)
-          }}
-          onBack={() => nav('brief')}
-        />
-      )}
+      {/*
+        设置页入口已隐藏：模型配置改为由 .env 提供（见 AGENTS.md「配置的两层」）。
+        Settings 组件与 saveConfig 仍保留，便于从 localStorage 读旧配置；
+        将来若要恢复图形化设置，把上面的「设置」按钮和这里的渲染一起放开即可。
+      */}
     </div>
   )
 }

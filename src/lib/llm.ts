@@ -125,8 +125,8 @@ async function chatOnce(
   jsonMode: boolean,
   images: string[] = [],
 ): Promise<string> {
-  if (!config.apiKey) throw new LlmError('还没有配置模型，请先到设置页填写 API Key')
-  if (!config.baseURL || !config.model) throw new LlmError('模型配置不完整，请到设置页检查')
+  if (!config.apiKey) throw new LlmError('还没配置模型：请在 .env 里填 VITE_API_KEY')
+  if (!config.baseURL || !config.model) throw new LlmError('模型配置不完整：请在 .env 里检查 VITE_BASE_URL 与 VITE_MODEL')
 
   // 附图时直接用主模型；不支持看图的模型会在上层触发"去图重试"降级
   const userContent =
@@ -159,7 +159,7 @@ async function chatOnce(
     })
     if (!res.ok) {
       const text = await res.text().catch(() => '')
-      if (res.status === 401) throw new LlmError('API Key 无效或已过期，请到设置页检查')
+      if (res.status === 401) throw new LlmError('API Key 无效或已过期，请检查 .env 里的 VITE_API_KEY')
       if (res.status === 402 || res.status === 429)
         throw new LlmError('余额不足或请求太频繁，请到厂商控制台查看')
       throw new LlmError(`模型请求失败（${res.status}）${text.slice(0, 120)}`)
@@ -173,7 +173,7 @@ async function chatOnce(
     if (err instanceof DOMException && err.name === 'AbortError')
       throw new LlmError('请求超时了，请检查网络或换一个模型再试')
     throw new LlmError(
-      '网络请求失败，可能是该厂商不允许浏览器直连（CORS）。可到设置页用"自定义"模式填一个中转地址',
+      '网络请求失败，可能是该厂商不允许浏览器直连（CORS）。可在 .env 里把 VITE_BASE_URL 改成中转地址后重新构建',
     )
   } finally {
     clearTimeout(timer)
@@ -224,8 +224,8 @@ export async function generateImage(
   prompt: string,
   referenceImages: string[] = [],
 ): Promise<string> {
-  if (!cfg.baseURL || !cfg.model) throw new LlmError('生图模型配置不完整，请到设置页检查')
-  if (!cfg.apiKey) throw new LlmError('缺少生图 API Key，请到设置页检查')
+  if (!cfg.baseURL || !cfg.model) throw new LlmError('生图配置不完整：请在 .env 里检查 VITE_IMAGE_BASE_URL 与 VITE_IMAGE_MODEL')
+  if (!cfg.apiKey) throw new LlmError('缺少生图 API Key：请在 .env 里填 VITE_IMAGE_API_KEY')
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 120_000)
@@ -248,7 +248,7 @@ export async function generateImage(
     })
     if (!res.ok) {
       const text = await res.text().catch(() => '')
-      if (res.status === 401) throw new LlmError('生图 API Key 无效，请到设置页检查')
+      if (res.status === 401) throw new LlmError('生图 API Key 无效，请检查 .env 里的 VITE_IMAGE_API_KEY')
       if (res.status === 402 || res.status === 429)
         throw new LlmError('生图余额不足或请求太频繁，请到厂商控制台查看')
       throw new LlmError(`生图失败（${res.status}）${text.slice(0, 120)}`)

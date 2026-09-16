@@ -1,3 +1,13 @@
+/**
+ * 模型设置页 —— **入口已隐藏，当前不在任何导航里可达**。
+ *
+ * 模型配置已改为由 `.env` 提供（见 AGENTS.md「配置的两层」），
+ * 本组件保留是为了将来恢复图形化设置时能一键启用：
+ * 在 `App.tsx` 里放开 header 的「设置」按钮 + `view === 'settings'` 的渲染即可。
+ *
+ * 注意：`loadConfig()` 现在 `.env` 优先，所以本页保存的值会被 `.env` 覆盖；
+ * 恢复本页时需同步调整 `storage.ts` 里的优先级。
+ */
 import { useEffect, useRef, useState } from 'react'
 import type { ModelConfig } from '../types'
 import { DOUBAO_FALLBACK_MODELS, IMAGE_GEN_PRESETS, listImageModels, PROVIDER_PRESETS, ZHIPU_IMAGE_SIZE } from '../lib/llm'

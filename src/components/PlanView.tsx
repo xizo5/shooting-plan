@@ -76,7 +76,7 @@ export default function PlanView({
         </div>
       ) : (
         <p className="rounded-xl bg-neutral-100 px-4 py-2.5 text-xs text-neutral-500">
-          想要 AI 写实参考片？到「设置」里开启参考片生成即可，每个画面都可单独生成
+          未启用参考片生成。在 .env 里填 VITE_IMAGE_API_KEY 与 VITE_IMAGE_MODEL 后重新构建，即可为每个画面生成 AI 写实参考片
         </p>
       )}
 

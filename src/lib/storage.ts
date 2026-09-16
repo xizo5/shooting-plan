@@ -5,8 +5,7 @@ const PLANS_KEY = 'sp:plans'
 
 /**
  * 从构建期环境变量读取模型配置（`.env`，见 `.env.example`）。
- * 仅作为**首次使用的默认值**：用户在设置页保存过的配置优先级更高，
- * 这样 CORS 时改中转地址、临时换厂商都不用重新构建。
+ * 这是**当前的配置主入口**——设置页入口已隐藏，模型配置以 `.env` 为准。
  */
 function configFromEnv(): ModelConfig | null {
   const apiKey = import.meta.env.VITE_API_KEY?.trim()
@@ -32,26 +31,51 @@ function configFromEnv(): ModelConfig | null {
   }
 }
 
+/**
+ * 读取模型配置。**优先级：`.env` > localStorage**。
+ *
+ * 设置页入口已隐藏，`.env` 是唯一可维护的配置来源，因此它说了算。
+ * localStorage 里的 `sp:config` 只作为兜底：`.env` 没配全时（例如只想换文字模型、
+ * 生图仍沿用旧配置）才读它，避免升级后配置凭空消失。
+ */
 export function loadConfig(): ModelConfig | null {
+  const envConfig = configFromEnv()
+  if (envConfig) {
+    // .env 配了生图就用 .env 的；没配则沿用本地遗留的生图配置，避免功能凭空消失
+    if (!envConfig.imageGen) {
+      const legacy = readLocalConfig()
+      if (legacy?.imageGen) return { ...envConfig, imageGen: legacy.imageGen }
+    }
+    return envConfig
+  }
+  return readLocalConfig()
+}
+
+/** 读 localStorage 里的旧配置（含历史模型名迁移） */
+function readLocalConfig(): ModelConfig | null {
   try {
     const raw = localStorage.getItem(CONFIG_KEY)
     const config = raw ? (JSON.parse(raw) as ModelConfig) : null
+    if (!config) return null
     // 旧默认 cogview-3-flash 迁移到 glm-image
-    if (config?.imageGen && config.imageGen.model === 'cogview-3-flash') {
+    if (config.imageGen && config.imageGen.model === 'cogview-3-flash') {
       config.imageGen = { ...config.imageGen, model: 'glm-image', size: '1056x1568' }
     }
     // deepseek-chat 旧模型名已停用（2026-07-24），指向 deepseek-v4-flash
-    if (config && config.presetId === 'deepseek' && config.model === 'deepseek-chat') {
+    if (config.presetId === 'deepseek' && config.model === 'deepseek-chat') {
       config.model = 'deepseek-v4-flash'
     }
-    // 本地存过配置就用本地的（用户在设置页调过的以用户为准）
-    if (config) return config
-    return configFromEnv()
+    return config
   } catch {
     return null
   }
 }
 
+/**
+ * 写回 localStorage。
+ * 设置页入口隐藏后暂无人调用，保留是为了恢复图形化设置页时能直接用；
+ * 注意 `.env` 优先级更高，这里的写入不会覆盖 `.env` 的配置。
+ */
 export function saveConfig(config: ModelConfig) {
   localStorage.setItem(CONFIG_KEY, JSON.stringify(config))
 }
