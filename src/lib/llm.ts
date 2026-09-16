@@ -130,12 +130,12 @@ function userContent(text: string, images: string[]): string | ContentPart[] {
   return [{ type: 'text', text }, ...images.map((url) => ({ type: 'image_url' as const, image_url: { url } }))]
 }
 
-/** 底层请求：发一组消息拿回复文本。所有模型调用最终都汇聚到这里 */
-async function postChat(
+/** 发请求并做统一的错误翻译（超时 / 401 / CORS 都变成了人话） */
+async function requestChat(
   config: ModelConfig,
   messages: WireMessage[],
-  jsonMode: boolean,
-): Promise<string> {
+  opts: { jsonMode?: boolean; stream?: boolean },
+): Promise<Response> {
   if (!config.apiKey) throw new LlmError('还没配置模型：请在 .env 里填 VITE_API_KEY')
   if (!config.baseURL || !config.model) throw new LlmError('模型配置不完整：请在 .env 里检查 VITE_BASE_URL 与 VITE_MODEL')
 
@@ -153,7 +153,8 @@ async function postChat(
         messages,
         temperature: 0.8,
         // 附图 + JSON 模式不兼容，见 chatOnce 的说明
-        ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
+        ...(opts.jsonMode ? { response_format: { type: 'json_object' } } : {}),
+        ...(opts.stream ? { stream: true } : {}),
       }),
       signal: controller.signal,
     })
@@ -164,10 +165,7 @@ async function postChat(
         throw new LlmError('余额不足或请求太频繁，请到厂商控制台查看')
       throw new LlmError(`模型请求失败（${res.status}）${text.slice(0, 120)}`)
     }
-    const data = await res.json()
-    const content = data?.choices?.[0]?.message?.content
-    if (typeof content !== 'string' || !content.trim()) throw new LlmError('模型返回了空内容，请重试')
-    return content
+    return res
   } catch (err) {
     if (err instanceof LlmError) throw err
     if (err instanceof DOMException && err.name === 'AbortError')
@@ -178,6 +176,100 @@ async function postChat(
   } finally {
     clearTimeout(timer)
   }
+}
+
+/** 底层请求：发一组消息拿回复文本。所有非流式模型调用最终都汇聚到这里 */
+async function postChat(
+  config: ModelConfig,
+  messages: WireMessage[],
+  jsonMode: boolean,
+): Promise<string> {
+  const res = await requestChat(config, messages, { jsonMode })
+  const data = await res.json().catch(() => null)
+  const content = data?.choices?.[0]?.message?.content
+  if (typeof content !== 'string' || !content.trim()) throw new LlmError('模型返回了空内容，请重试')
+  return content
+}
+
+/**
+ * 流式解析 OpenAI 兼容的 SSE 响应，每收到一段增量就调一次 onDelta。
+ *
+ * 容错要点（不同厂商实现有差异）：
+ * - 事件以 `data: ` 开头，空行分隔；`data: [DONE]` 表示结束
+ * - 中文是多字节的，一个 chunk 可能把字切两半 —— 因此**只按换行切**，
+ *   残缺的行留在 buffer 里等下一块，绝不按字节硬切
+ * - 少数厂商（或中转）忽略 stream 参数直接返回完整 JSON，这里做兜底直读
+ */
+async function readStream(res: Response, onDelta: (text: string) => void): Promise<string> {
+  const ctype = res.headers.get('content-type') ?? ''
+  if (!res.body || (!ctype.includes('event-stream') && !ctype.includes('stream'))) {
+    // 厂商不支持流式：退化成一次性读取，至少不会白等
+    const data = await res.json().catch(() => null)
+    const content = data?.choices?.[0]?.message?.content
+    if (typeof content !== 'string' || !content.trim()) throw new LlmError('模型返回了空内容，请重试')
+    onDelta(content)
+    return content
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+  let out = ''
+  let done = false
+
+  while (!done) {
+    const { value, done: finished } = await reader.read()
+    if (finished) break
+    buffer += decoder.decode(value, { stream: true })
+
+    // SSE 的分隔符可能是 \n\n 或 \r\n\r\n，统一按 \n 切再 trim
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const rawLine of lines) {
+      const line = rawLine.trim()
+      if (!line.startsWith('data:')) continue
+      const payload = line.slice(5).trim()
+      if (!payload || payload === '[DONE]') {
+        if (payload === '[DONE]') done = true
+        continue
+      }
+      try {
+        const json = JSON.parse(payload)
+        const delta = json?.choices?.[0]?.delta
+        // 部分厂商把增量放在 message.content（非标准但常见），一并兼容
+        const piece = delta?.content ?? delta?.reasoning_content ?? json?.choices?.[0]?.message?.content
+        if (typeof piece === 'string' && piece) {
+          out += piece
+          onDelta(piece)
+        }
+      } catch {
+        // 单个事件解析失败不能拖垮整段输出，跳过
+      }
+    }
+    if (done) break
+  }
+
+  // 收尾：处理最后一行没有换行符的情况
+  buffer += decoder.decode()
+  for (const rawLine of buffer.split('\n')) {
+    const line = rawLine.trim()
+    if (!line.startsWith('data:')) continue
+    const payload = line.slice(5).trim()
+    if (!payload || payload === '[DONE]') continue
+    try {
+      const json = JSON.parse(payload)
+      const piece = json?.choices?.[0]?.delta?.content ?? json?.choices?.[0]?.message?.content
+      if (typeof piece === 'string' && piece) {
+        out += piece
+        onDelta(piece)
+      }
+    } catch {
+      // 同上
+    }
+  }
+
+  if (!out.trim()) throw new LlmError('模型返回了空内容，请重试')
+  return out
 }
 
 async function chatOnce(
@@ -255,12 +347,34 @@ export async function chatText(
   user: string,
   opts: ChatTextOpts = {},
 ): Promise<string> {
+  return postChat(config, buildTextMessages(system, user, opts), false)
+}
+
+/** 组装多轮文本消息（history 为「本条之前的对话」，user 是本条新消息） */
+function buildTextMessages(system: string, user: string, opts: ChatTextOpts): WireMessage[] {
   const messages: WireMessage[] = [{ role: 'system', content: system }]
   for (const m of opts.history ?? []) {
     messages.push({ role: m.role, content: m.content })
   }
   messages.push({ role: 'user', content: userContent(user, opts.images ?? []) })
-  return postChat(config, messages, false)
+  return messages
+}
+
+/**
+ * 流式版多轮对话：每收到一段增量就回调 onDelta，返回完整文本。
+ *
+ * 供讨论环节使用（逐字显示更像在和人聊天）。若厂商不支持 SSE，
+ * readStream 会退化成一次性返回 —— 上层无需关心。
+ */
+export async function chatTextStream(
+  config: ModelConfig,
+  system: string,
+  user: string,
+  onDelta: (text: string) => void,
+  opts: ChatTextOpts = {},
+): Promise<string> {
+  const res = await requestChat(config, buildTextMessages(system, user, opts), { stream: true })
+  return readStream(res, onDelta)
 }
 
 /** 生成一张参考片；附参考图时走图生图（base64 直传），返回 dataURL 或远程 URL */
@@ -316,3 +430,13 @@ export async function generateImage(
     clearTimeout(timer)
   }
 }
+
+/**
+ * 测试接缝：SSE 解析是这个文件里唯一"看着简单、写错很难发现"的逻辑
+ * （中文被 UTF-8 边界切断会直接变成乱码），所以把它暴露出来单独验证。
+ *
+ * 跑 `npm run test:sse`，脚本会 esbuild 编译本文件（含这个导出）再喂各种
+ * 分块方式：逐字节、CRLF、坏 JSON、[DONE]、非标准字段、不支持流式的降级。
+ * 别改成用正则剥 TS 类型，会崩。
+ */
+export const __test = { readStream }

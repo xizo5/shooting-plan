@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Brief, ChatMessage, Consensus, ModelConfig, ShootPlan, StyleDirection, View } from './types'
 import type { BatchState } from './components/PlanView'
-import { LlmError, chatJson, chatText, extractJson, generateImage } from './lib/llm'
+import { LlmError, chatJson, chatText, chatTextStream, extractJson, generateImage } from './lib/llm'
 import {
   cardsSystem,
   cardsUserPrompt,
@@ -70,6 +70,13 @@ export default function App() {
   const [consensus, setConsensus] = useState<Consensus | null>(null)
   /** 讨论对应的前置条件快照（用户回退再改输入时用） */
   const [discussBrief, setDiscussBrief] = useState<Brief>(EMPTY_DRAFT)
+  /** 生成完成后的成功提示（区别于 error/notice，带关闭按钮） */
+  const [toast, setToast] = useState<string | null>(null)
+  /**
+   * 生成锁。state 更新是异步的，狂点按钮时下一次点击可能在重渲染前就进来了 ——
+   * ref 是同步的，用它兜住，state 只负责 UI 禁用态。
+   */
+  const generating = useRef(false)
 
   const plan = batchPlans[planIndex] ?? null
 
@@ -87,6 +94,52 @@ export default function App() {
   // 讨论环节
   // ─────────────────────────────────────────────
 
+  /**
+   * 流式请求一轮讨论回复，并把它作为最后一条 assistant 消息实时写进列表。
+   *
+   * 抽成函数是因为「开场」和「每轮追问」共用同一套逻辑：都带图试一次，
+   * 失败且确有参考图时摘掉图重试一次。
+   */
+  const streamReply = async (
+    system: string,
+    userText: string,
+    history: ChatMessage[],
+    images: string[],
+    onImageDrop: () => void,
+  ): Promise<string> => {
+    const cfg = config!
+    // 占位的空 assistant 气泡：内容随 onDelta 增长，用户立刻看到字在往外冒
+    const placeholder: ChatMessage = { role: 'assistant', content: '', streaming: true }
+    let live = [...history, placeholder]
+    setMessages(live)
+    const onDelta = (piece: string) => {
+      live = live.map((m, i) =>
+        i === live.length - 1 ? { ...m, content: m.content + piece } : m,
+      )
+      setMessages(live)
+    }
+
+    let reply: string
+    try {
+      reply = await chatTextStream(cfg, system, userText, onDelta, { history, images })
+    } catch (err) {
+      if (images.length === 0) throw err
+      onImageDrop()
+      // 去掉图重试：清空刚才可能已经吐出的一半内容，重新流
+      live = [...history, placeholder]
+      setMessages(live)
+      const onDeltaRetry = (piece: string) => {
+        live = live.map((m, i) =>
+          i === live.length - 1 ? { ...m, content: m.content + piece } : m,
+        )
+        setMessages(live)
+      }
+      reply = await chatTextStream(cfg, system, userText, onDeltaRetry, { history })
+    }
+    setMessages([...history, { role: 'assistant', content: reply }])
+    return reply
+  }
+
   /** 进入讨论：先让 AI 给出开场建议 + 追问 */
   const startDiscuss = async (b: Brief) => {
     if (!config) {
@@ -95,25 +148,23 @@ export default function App() {
     }
     setError(null)
     setNotice(null)
+    setToast(null)
     setConsensus(null)
     setDiscussBrief(b)
+    setMessages([])
     setDiscussing(true)
     setView('discuss')
-    const hasImages = b.referenceImages.length > 0
     try {
-      let reply: string
-      try {
-        reply = await chatText(config, discussSystem(), discussOpeningPrompt(b.text, hasImages), {
-          images: b.referenceImages,
-        })
-      } catch (err) {
-        if (!hasImages) throw err
-        setNotice('当前模型看不了图，已忽略参考图继续讨论。想贴着参考图聊，请换支持看图的模型（如智谱 glm-4v-flash）')
-        reply = await chatText(config, discussSystem(), discussOpeningPrompt(b.text, false))
-      }
-      setMessages([{ role: 'assistant', content: reply }])
+      await streamReply(
+        discussSystem(),
+        discussOpeningPrompt(b.text, b.referenceImages.length > 0),
+        [],
+        b.referenceImages,
+        () => setNotice('当前模型看不了图，已忽略参考图继续讨论。想贴着参考图聊，请换支持看图的模型（如智谱 glm-4v-flash）'),
+      )
     } catch (err) {
       setError(err instanceof Error ? err.message : '讨论开场失败，请重试')
+      setMessages([])
       setView('brief')
     } finally {
       setDiscussing(false)
@@ -122,26 +173,20 @@ export default function App() {
 
   /** 用户在讨论中发一条消息 */
   const sendDiscussMessage = async (text: string) => {
-    if (!config) return
-    // 注意：history 传的是「这条之前的对话」，text 作为本条 user 消息由 chatText 追加，
+    if (!config || discussing) return
+    // 注意：history 传的是「这条之前的对话」，text 作为本条 user 消息由流式函数追加，
     // 别再往 history 里塞一遍，否则同一条会发两遍
     const prior = messages
-    setMessages([...prior, { role: 'user', content: text }])
     setDiscussing(true)
     setError(null)
-    const hasImages = discussBrief.referenceImages.length > 0
     try {
-      let reply: string
-      try {
-        reply = await chatText(config, discussSystem(), text, {
-          history: prior,
-          images: discussBrief.referenceImages,
-        })
-      } catch (err) {
-        if (!hasImages) throw err
-        reply = await chatText(config, discussSystem(), text, { history: prior })
-      }
-      setMessages([...prior, { role: 'user', content: text }, { role: 'assistant', content: reply }])
+      await streamReply(
+        discussSystem(),
+        text,
+        [...prior, { role: 'user', content: text }],
+        discussBrief.referenceImages,
+        () => setNotice('当前模型看不了图，已忽略参考图继续讨论。想贴着参考图聊，请换支持看图的模型（如智谱 glm-4v-flash）'),
+      )
     } catch (err) {
       // 回复失败时把用户那条也撤掉，避免历史里留下没有回应的孤句
       setMessages(prior)
@@ -211,8 +256,12 @@ export default function App() {
       setError('模型还没配置：请复制 .env.example 为 .env，填入 VITE_API_KEY 与 VITE_MODEL 后重新构建')
       return
     }
+    // 防抖：真实耗时几十秒，用户等急了会连点。ref 是同步的，挡得住同一批点击
+    if (generating.current) return
+    generating.current = true
     setError(null)
     setNotice(null)
+    setToast(null)
     setStage('directions')
     const hasImages = b.referenceImages.length > 0
     let notices: string[] = []
@@ -257,9 +306,16 @@ export default function App() {
       setBatchPlans(ok)
       setPlanIndex(0)
       setView('plan')
+      // 完成反馈：页面直接跳走了，不给一句话用户会怀疑到底成没成
+      setToast(
+        ok.length > 1
+          ? `已生成 ${ok.length} 套场景方案，顶部可切换对比 · 已存到「我的策划」`
+          : '已生成 1 套场景方案 · 已存到「我的策划」',
+      )
     } catch (err) {
       setError(err instanceof Error ? err.message : '生成失败，请重试')
     } finally {
+      generating.current = false
       setStage(null)
     }
   }
@@ -359,6 +415,19 @@ export default function App() {
           {notice}
         </div>
       )}
+      {toast && (
+        <div className="mb-4 flex items-start gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-sm leading-relaxed text-emerald-800">
+          <span className="shrink-0">✓</span>
+          <span className="flex-1">{toast}</span>
+          <button
+            onClick={() => setToast(null)}
+            className="shrink-0 text-emerald-600/70 hover:text-emerald-800"
+            aria-label="关闭提示"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {view === 'brief' &&
         (stage === 'directions' ? (
@@ -366,7 +435,7 @@ export default function App() {
         ) : stage === 'expand' ? (
           <PlanLoading count={3} />
         ) : (
-          <BriefForm value={draft} onChange={setDraft} onSubmit={startDiscuss} />
+          <BriefForm value={draft} onChange={setDraft} onSubmit={startDiscuss} busy={discussing} />
         ))}
 
       {view === 'discuss' && (
@@ -375,13 +444,24 @@ export default function App() {
           messages={messages}
           consensus={consensus}
           busy={discussing}
+          generating={stage !== null}
           summarizing={summarizing}
           onSend={sendDiscussMessage}
           onSummarize={summarizeDiscuss}
-          onConfirm={() => generateAll(discussBrief, consensus)}
+          onConfirm={() => {
+            // 双保险：按钮本身会用 generating 置灰，这里再挡一次连点
+            if (stage === null) generateAll(discussBrief, consensus)
+          }}
           onRedoConsensus={redoConsensus}
           onBack={() => nav('brief')}
         />
+      )}
+
+      {/* 确认生成后：讨论页原地切到等待动画，用户知道点到了、正在干活 */}
+      {view === 'discuss' && stage !== null && (
+        <div className="mt-6">
+          {stage === 'directions' ? <CardsLoading /> : <PlanLoading count={3} />}
+        </div>
       )}
 
       {view === 'plan' && plan && (

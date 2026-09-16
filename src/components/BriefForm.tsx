@@ -8,9 +8,11 @@ interface Props {
   value: Brief
   onChange: (brief: Brief) => void
   onSubmit: (brief: Brief) => void
+  /** 正在开场（提交后按钮置灰，防连点） */
+  busy?: boolean
 }
 
-export default function BriefForm({ value, onChange, onSubmit }: Props) {
+export default function BriefForm({ value, onChange, onSubmit, busy }: Props) {
   const [uploading, setUploading] = useState(false)
 
   const ready = value.text.trim() || value.referenceImages.length > 0
@@ -108,10 +110,10 @@ export default function BriefForm({ value, onChange, onSubmit }: Props) {
 
       <button
         onClick={() => onSubmit(value)}
-        disabled={!ready}
+        disabled={!ready || busy}
         className="w-full rounded-xl bg-neutral-900 py-3.5 font-medium text-white disabled:opacity-30"
       >
-        开始聊拍摄思路
+        {busy ? '正在准备讨论…' : '开始聊拍摄思路'}
       </button>
     </div>
   )

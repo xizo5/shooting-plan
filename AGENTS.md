@@ -18,7 +18,7 @@
 ```
 Brief（text + ≤4 张参考图）
   │
-  ├─ 阶段 0  讨论环节 chatText(discussSystem)                  【多轮】
+  ├─ 阶段 0  讨论环节 **流式**（chatTextStream）              【多轮，逐字显示】
   │    ├→ 开场：discussOpeningPrompt(text, hasImages) 抛出 2-3 个关键问题
   │    ├→ 多轮：每轮 history = 本轮之前的全部对话，新消息作为 user 追加
   │    └→ 用户点「整理成拍摄约定」→ chatText(consensusPrompt) + extractJson
@@ -40,9 +40,19 @@ Brief（text + ≤4 张参考图）
 
 **共识必须钉进 prompt**：`consensus` 经 `formatConsensus()`（`prompts.ts`）注入阶段 1 与阶段 2 两处。少注入一处，风格就会在展开时跑偏——这是本环节唯一容易漏的地方。风格锁定后，「3 套」的差异只能来自场景，prompt 里已明确禁止换风格。
 
-**多轮对话的传参约定**：`chatText(config, system, user, { history, images })` 中 `history` 是**本条之前的对话**，`user` 是**本条新消息**，函数会把 user 追加到 history 之后。**别把新消息也塞进 history**，否则同一条发两遍（踩过）。`images` 只挂在最后一条 user 上——多个厂商拒绝多消息带图，同时也省 token。
+**多轮对话的传参约定**：`chatText` / `chatTextStream(config, system, user, [onDelta,] { history, images })` 中 `history` 是**本条之前的对话**，`user` 是**本条新消息**，函数会把 user 追加到 history 之后。**别把新消息也塞进 history**，否则同一条发两遍（踩过）。`images` 只挂在最后一条 user 上——多个厂商拒绝多消息带图，同时也省 token。
 
-**降级路径（贯穿全流程）**：附图请求失败且确有参考图时，**去掉图片重试一次**，并给用户一条 notice 说明「当前模型看不了图」。上层不应把这类失败当致命错误抛出。讨论环节同样适用（开场与每轮回复都要兜）。
+**流式输出（讨论环节专用）**：`chatTextStream` 走 SSE，边收边回调 `onDelta`。三条硬约束：
+
+1. **只按换行切分，绝不按字节切**。一个 chunk 可能把中文字劈成两半，残缺的行必须留在 buffer 里等下一块。`readStream` 用 `TextDecoder(..., {stream:true})` + `split('\n')` + `pop()` 兜住，改这里前先看那段注释。
+2. **单个事件解析失败只跳过**，不能让一个坏 JSON 拖垮整段回复。
+3. **厂商不支持流式时要退化**：content-type 不是 event-stream，或直接返回了完整 JSON，就一次性读完并调一次 onDelta。判断依据是 content-type 而不是试错。
+
+**生成防抖**：`generateAll` 用 `generating`（**ref，不是 state**）做互斥锁。state 更新是异步的，狂点按钮时下一次点击可能在重渲染前就进来了，只有 ref 挡得住；state 那份只负责 UI 禁用态。生成成功后在策划页顶部给一条绿色 toast（几套成功 + 已存到哪），因为页面直接跳走了，没反馈用户会以为没点上。
+
+**测试接缝**：`src/lib/llm.ts` 末尾导出 `__test = { readStream }`。`npm run test:sse`（`scripts/test-sse.mjs`）用 esbuild 编译该文件后喂各种分块方式验证 SSE 解析：逐字节、CRLF、坏 JSON、`[DONE]`、非标准 `message.content`、不支持流式的降级。改 `readStream` 后跑一遍。**别改成用正则剥 TS 类型**——试过，会崩。
+
+**降级路径（贯穿全流程）**：附图请求失败且确有参考图时，**去掉图片重试一次**，并给用户一条 notice 说明「当前模型看不了图」。上层不应把这类失败当致命错误抛出。讨论环节同样适用（开场与每轮回复都要兜，见 `streamReply`）。
 
 ## 数据模型
 
@@ -96,7 +106,8 @@ Brief（text + ≤4 张参考图）
 ## 开发循环
 
 1. 改代码 → `npm run build`（tsc 严格检查 + vite 构建）必须零错误。
-2. UI 改动用浏览器冒烟：`npm run preview` 起服务，走一遍受影响的页面。**没有真实 key 无法测生成链路**，在 devtools console 注入假策划数据验证展示层：
+2. 动了 `src/lib/llm.ts` 的流式解析 → `npm run test:sse` 必须全绿。
+3. UI 改动用浏览器冒烟：`npm run preview` 起服务，走一遍受影响的页面。**没有真实 key 无法测生成链路**，在 devtools console 注入假策划数据验证展示层：
 
    ```js
    // 注入一套最简策划，然后进「我的策划」点开看展示效果
@@ -114,14 +125,15 @@ Brief（text + ≤4 张参考图）
    ```
 
    注：长图导出只收录 `data:` 开头的参考片，远程 URL 会污染 canvas 被跳过——测导出时也要用 dataURL。
-3. 交付前对照 `CONTEXT.md` 的术语检查 UI 文案——界面用词和术语表一致。
-4. 提交前 `git status` 必须干净且**不含 `.env` / `dist/`**。若为验证环境变量注入临时建过 `.env`，验证完立刻删除。
+4. 交付前对照 `CONTEXT.md` 的术语检查 UI 文案——界面用词和术语表一致。
+5. 提交前 `git status` 必须干净且**不含 `.env` / `dist/`**。若为验证环境变量注入临时建过 `.env`，验证完立刻删除。
 
 ## 架构规则
 
 - **零后端（BYOK）**：一切跑在浏览器里，用户的各家 API key 存 localStorage（或由 `.env` 提供默认值）、直连厂商的 OpenAI 兼容接口。新增功能先问「纯前端能不能做」，答不了再谈后端。
 - **CORS 立场**：某厂商浏览器直连被挡时，产品内不解决——引导用户改用「自定义」中转（写进 `.env` 的 `VITE_*_BASE_URL`）。不为单个厂商加代理或变通代码。
-- **唯一测试接缝**：`src/lib/llm.ts` 的 `chatJson` / `chatText` / `generateImage`。所有依赖模型的行为都经这几个函数；未来写测试只 mock 这条缝，UI 与纯函数直接测。
+- **唯一测试接缝**：`src/lib/llm.ts` 的 `chatJson` / `chatText` / `chatTextStream` / `generateImage`。所有依赖模型的行为都经这几个函数；写测试的 mock 点只在这里，UI 与纯函数直接测。
+- **动效出口**：所有 `@keyframes` 写在 `src/index.css`，组件里只用 `animate-[名字_时长_缓动_次数]` 引用。别在组件内塞 `<style>`——将来要统一尊重 `prefers-reduced-motion` 时只有一个地方要改（已经加了那条 media query）。
 - **标签词汇表耦合**：`src/lib/poses.ts` 的 `POSE_TAGS` 是 prompt（`src/lib/prompts.ts`）里声明给模型的可选集合。改一边必须同步另一边，否则画面对不上插画。当前 15 个标签：单人 7（站/走/坐/跳/背影/回眸/蹲）、双人 8。
 - **localStorage 防御**：参考片等图片进存储前先压缩（现例：768px 参考图、480px 参考片）；`savePlan` 已有超容量逐级丢弃逻辑（30→20→10→5→2→1），新增大体积数据沿用该模式。
 - **生图默认豆包**：参考片默认走火山方舟豆包 Seedream（用户只填 Key），参考图 base64 直传做图生图、响应要 b64_json。生图预设改动集中在 `IMAGE_GEN_PRESETS`（`src/lib/llm.ts`）。

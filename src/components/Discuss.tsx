@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Brief, ChatMessage, Consensus } from '../types'
+import { TypingDots } from './Loading'
 
 interface Props {
   /** 初始需求（来自前置条件页） */
   brief: Brief
   messages: ChatMessage[]
   consensus: Consensus | null
-  /** 正在等模型回复 */
+  /** 正在等模型回复（流式接收中） */
   busy: boolean
+  /** 已确认生成、正在出方案 —— 期间禁止再次点击 */
+  generating: boolean
   /** 正在归纳共识 */
   summarizing: boolean
   /** 用户发送一条消息 */
@@ -35,6 +38,7 @@ export default function Discuss({
   messages,
   consensus,
   busy,
+  generating,
   summarizing,
   onSend,
   onSummarize,
@@ -45,10 +49,11 @@ export default function Discuss({
   const [draft, setDraft] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  // 新消息进来时滚到底
+  // 新消息进来时滚到底。流式期间内容长度在变，所以用最后一条的长度也做依赖
+  const tailLen = messages[messages.length - 1]?.content.length ?? 0
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [messages.length, busy, consensus])
+  }, [messages.length, tailLen, busy, consensus])
 
   const submit = () => {
     const text = draft.trim()
@@ -98,33 +103,24 @@ export default function Discuss({
             <div key={i} className="flex justify-start">
               <p className="max-w-[90%] whitespace-pre-wrap rounded-2xl rounded-bl-md bg-white px-4 py-2.5 text-sm leading-relaxed text-neutral-800 shadow-sm">
                 {m.content}
+                {/* 流式中：字后跟一根闪烁光标，还没吐字时显示三个跳动的点 */}
+                {m.streaming &&
+                  (m.content ? (
+                    <span className="ml-0.5 inline-block h-3.5 w-[2px] translate-y-0.5 animate-[caret_1s_steps(1)_infinite] bg-neutral-800 align-middle" />
+                  ) : (
+                    <TypingDots />
+                  ))}
               </p>
             </div>
           ),
-        )}
-
-        {busy && (
-          <div className="flex justify-start">
-            <p className="rounded-2xl rounded-bl-md bg-white px-4 py-3 shadow-sm">
-              <span className="inline-flex gap-1">
-                {[0, 1, 2].map((i) => (
-                  <span
-                    key={i}
-                    className="h-1.5 w-1.5 animate-bounce rounded-full bg-neutral-400"
-                    style={{ animationDelay: `${i * 0.15}s` }}
-                  />
-                ))}
-              </span>
-            </p>
-          </div>
         )}
         <div ref={bottomRef} />
       </div>
 
       {/* 讨论没结束：继续聊 */}
-      {!consensus && (
+      {!consensus && !generating && (
         <div className="space-y-3">
-          {!busy && messages.some((m) => m.role === 'assistant') && (
+          {!busy && messages.some((m) => m.role === 'assistant' && m.content.trim()) && (
             <button
               onClick={onSummarize}
               disabled={summarizing}
@@ -153,7 +149,7 @@ export default function Discuss({
               disabled={!draft.trim() || busy}
               className="shrink-0 rounded-xl bg-neutral-900 px-4 text-sm font-medium text-white disabled:opacity-30"
             >
-              发送
+              {busy ? '回复中…' : '发送'}
             </button>
           </div>
         </div>
@@ -164,7 +160,9 @@ export default function Discuss({
         <div className="space-y-3 rounded-2xl border border-neutral-900 bg-white p-4">
           <div>
             <h3 className="font-semibold">拍摄约定</h3>
-            <p className="mt-0.5 text-xs text-neutral-500">确认后按这个生成 3 套场景方案</p>
+            <p className="mt-0.5 text-xs text-neutral-500">
+              {generating ? '正在按这个约定生成，稍等一会儿' : '确认后按这个生成 3 套场景方案'}
+            </p>
           </div>
 
           {hasContent ? (
@@ -187,16 +185,24 @@ export default function Discuss({
           <div className="flex gap-2">
             <button
               onClick={onRedoConsensus}
-              disabled={summarizing}
+              disabled={summarizing || generating}
               className="flex-1 rounded-xl border border-neutral-200 py-3 text-sm text-neutral-600 disabled:opacity-40"
             >
               {summarizing ? '整理中…' : '继续聊'}
             </button>
             <button
               onClick={onConfirm}
-              className="flex-1 rounded-xl bg-neutral-900 py-3 text-sm font-medium text-white"
+              disabled={generating}
+              className="flex-1 rounded-xl bg-neutral-900 py-3 text-sm font-medium text-white disabled:opacity-50"
             >
-              就按这个生成
+              {generating ? (
+                <span className="inline-flex items-center gap-2">
+                  生成中
+                  <TypingDots className="[&>span]:bg-white/70" />
+                </span>
+              ) : (
+                '就按这个生成'
+              )}
             </button>
           </div>
         </div>

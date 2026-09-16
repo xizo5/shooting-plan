@@ -22,6 +22,8 @@ export interface StyleDirection {
 export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
+  /** 该条是否还在流式接收中（仅 UI 用，不落库、不参与请求） */
+  streaming?: boolean
 }
 
 /**
