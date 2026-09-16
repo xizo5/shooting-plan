@@ -1,7 +1,36 @@
-import type { ModelConfig, ShootPlan } from '../types'
+import type { ModelConfig, ImageGenConfig, ShootPlan } from '../types'
 
 const CONFIG_KEY = 'sp:config'
 const PLANS_KEY = 'sp:plans'
+
+/**
+ * 从构建期环境变量读取模型配置（`.env`，见 `.env.example`）。
+ * 仅作为**首次使用的默认值**：用户在设置页保存过的配置优先级更高，
+ * 这样 CORS 时改中转地址、临时换厂商都不用重新构建。
+ */
+function configFromEnv(): ModelConfig | null {
+  const apiKey = import.meta.env.VITE_API_KEY?.trim()
+  const model = import.meta.env.VITE_MODEL?.trim()
+  if (!apiKey || !model) return null
+
+  const imageGen: ImageGenConfig | null =
+    import.meta.env.VITE_IMAGE_API_KEY?.trim() && import.meta.env.VITE_IMAGE_MODEL?.trim()
+      ? {
+          baseURL: import.meta.env.VITE_IMAGE_BASE_URL?.trim() ?? '',
+          apiKey: import.meta.env.VITE_IMAGE_API_KEY.trim(),
+          model: import.meta.env.VITE_IMAGE_MODEL.trim(),
+          size: import.meta.env.VITE_IMAGE_SIZE?.trim() || undefined,
+        }
+      : null
+
+  return {
+    presetId: 'custom',
+    baseURL: import.meta.env.VITE_BASE_URL?.trim() ?? '',
+    apiKey,
+    model,
+    imageGen,
+  }
+}
 
 export function loadConfig(): ModelConfig | null {
   try {
@@ -15,7 +44,9 @@ export function loadConfig(): ModelConfig | null {
     if (config && config.presetId === 'deepseek' && config.model === 'deepseek-chat') {
       config.model = 'deepseek-v4-flash'
     }
-    return config
+    // 本地存过配置就用本地的（用户在设置页调过的以用户为准）
+    if (config) return config
+    return configFromEnv()
   } catch {
     return null
   }
