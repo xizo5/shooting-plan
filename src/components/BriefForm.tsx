@@ -44,7 +44,7 @@ export default function BriefForm({ value, onChange, onSubmit }: Props) {
       <div className="rounded-2xl bg-neutral-900 p-5 text-white">
         <h1 className="text-xl font-bold">告诉我你想怎么拍</h1>
         <p className="mt-1 text-sm text-neutral-400">
-          一句话描述你的拍摄想法，AI 会给你几个风格方向，选中后展开成照着拍就行的完整策划。
+          一句话描述你的拍摄想法，AI 会先和你把服装、道具、动作聊清楚，确认后再出完整策划。
         </p>
       </div>
 
@@ -54,7 +54,7 @@ export default function BriefForm({ value, onChange, onSubmit }: Props) {
           value={value.text}
           onChange={(e) => onChange({ ...value, text: e.target.value })}
           rows={4}
-          placeholder={'想怎么拍都可以，比如：\n"周日下午想和女朋友在西湖拍一组日系照片"\n也可以只发图，AI 会看图出方案'}
+          placeholder={'想怎么拍都可以，比如：\n"周日下午想和女朋友在西湖拍一组偏过曝的日系小清新"\n也可以只发图，AI 会看图和你聊'}
           className="w-full resize-none rounded-xl border border-neutral-200 px-3 py-2.5 outline-none focus:border-neutral-900"
         />
       </div>
@@ -111,7 +111,7 @@ export default function BriefForm({ value, onChange, onSubmit }: Props) {
         disabled={!ready}
         className="w-full rounded-xl bg-neutral-900 py-3.5 font-medium text-white disabled:opacity-30"
       >
-        生成拍摄方案
+        开始聊拍摄思路
       </button>
     </div>
   )

@@ -18,6 +18,36 @@ export interface StyleDirection {
   tagline: string
 }
 
+/** 讨论环节的一条消息 */
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+/**
+ * 共识：讨论环节敲定的拍摄约定，确认后作为生成依据。
+ * 由 AI 在讨论收尾时归纳，用户可要求修改；字段都可缺省，缺省表示"没聊到、由 AI 自行发挥"。
+ */
+export interface Consensus {
+  /** 风格调性，如"偏过曝的日系小清新" */
+  style: string
+  /** 服装建议 */
+  wardrobe: string
+  /** 道具清单 */
+  props: string
+  /** 动作/情绪基调 */
+  mood: string
+  /** 其他约束（避开的元素、必须拍到的东西等） */
+  notes: string
+}
+
+/** 一次讨论会话：消息历史 + 收敛出的共识 */
+export interface Discussion {
+  messages: ChatMessage[]
+  /** 尚未确认前为 null */
+  consensus: Consensus | null
+}
+
 /** 画面：策划的最小单位，对应成片中的一张照片 */
 export interface Shot {
   /** 姿势、构图、光线、表情引导的完整描述 */
@@ -72,4 +102,4 @@ export interface ModelConfig {
   imageGen?: ImageGenConfig | null
 }
 
-export type View = 'brief' | 'plan' | 'settings' | 'library'
+export type View = 'brief' | 'discuss' | 'plan' | 'library'

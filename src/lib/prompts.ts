@@ -1,5 +1,5 @@
 import { POSE_TAGS } from './poses'
-import type { Brief, Scene, Shot, StyleDirection } from '../types'
+import type { Brief, Consensus, Scene, Shot, StyleDirection } from '../types'
 
 const LIGHT_KNOWLEDGE = `
 时段→光线知识（写画面时必须遵守）：
@@ -20,13 +20,62 @@ const SYSTEM = `你是一位顶级拍摄策划师，专门为"被拍的人"（�
 
 只输出 JSON，不要输出任何其他文字。`
 
+// ─────────────────────────────────────────────
+// 讨论环节：先聊清楚再生成
+// ─────────────────────────────────────────────
+
+const DISCUSS_SYSTEM = `你是一位顶级拍摄策划师，正在和被拍的人**先聊清楚再动手**。对方站在镜头前会紧张、不懂摄影术语。
+
+你的任务是帮 TA 把想法聊具体，最终敲定一份"拍摄约定"。讨论阶段**不要**输出完整策划或 JSON。
+
+说话方式：
+- 大白话，像朋友聊天，不用摄影黑话。对方说了术语（如"过曝""大光圈"）你才跟着用
+- 每轮回复**只做两件事**：① 就上一句给出具体可执行的建议（可以是几个选项）；② 追问 1-2 个真正影响出片的关键问题
+- 建议要具体到能立刻执行："穿浅色棉麻衬衫+米白长裙，避开大面积黑色和 logo" 好过 "穿浅色衣服"
+- 一次别问太多，别像填表格。对方明显已经说清的部分不要再问
+- 对方只有图没写字时，主动从图里读出信息（这是什么地方、什么光、适合什么）再给建议
+- 语气自然松弛，别用"首先/其次/综上所述"，别写"希望对您有帮助"
+- 简短优先：一段话能说清就别写三段`;
+
+export function discussSystem(): string {
+  return DISCUSS_SYSTEM
+}
+
+/** 讨论开场：把初始需求 + 参考图交给 AI，让它给出第一轮建议和追问 */
+export function discussOpeningPrompt(text: string, hasImages: boolean): string {
+  return `这是被拍者最初的拍摄想法${hasImages ? '，以及随消息附上的参考图' : ''}：
+
+${text || '（对方只上传了参考图，没有写字）'}
+${
+  hasImages
+    ? `
+参考图说明（可能是一张或多张）：
+- 模特图：人物的外形、气质、着装，你的建议必须适合这个人
+- 场景图：真实环境、光线、可站位——你的建议必须落在这个真实场景里、现场做得到`
+    : ''
+}
+
+请给出第一轮回应：先说你对这个想法的理解 + 一两条具体建议（服装 / 道具 / 动作方向，挑最影响出片的说），再追问 1-2 个关键问题。
+注意此刻禁止输出完整策划，也禁止输出 JSON，就是正常说话。`
+}
+
+/** 讨论收尾：把聊定的内容归纳成结构化共识 */
+export function consensusPrompt(): string {
+  return `现在把上面整个讨论的结论归纳成一份"拍摄约定"。
+
+只归纳**讨论中真正确定或达成共识**的内容；没聊到的维度留空字符串，不要替对方编。
+
+输出 JSON 格式：
+{"style":"风格调性（如 偏过曝的日系小清新）","wardrobe":"服装建议（具体到材质、色系、避开的元素）","props":"道具清单（没有则留空）","mood":"动作与情绪基调","notes":"其他必须遵守的约束（如必须拍到的东西、要避开的元素）"}`
+}
+
 export function cardsSystem(): string {
   return SYSTEM
 }
 
-/** 风格方向生成：同时把自由文本 + 参考图解析成结构化前置条件 */
-export function cardsUserPrompt(text: string, hasImages: boolean): string {
-  return `下面是被拍者的拍摄需求描述${hasImages ? '，以及随消息附上的参考图' : ''}。请先解析前置条件，再生成 3 个差异明显的风格方向（方向名 + 一句话卖点），后续会各自展开成完整策划。
+/** 场景变体生成：把自由文本 + 参考图 + **讨论共识**解析成结构化前置条件，再产出多套场景方案 */
+export function cardsUserPrompt(text: string, hasImages: boolean, consensus?: Consensus | null): string {
+  return `下面是被拍者的拍摄需求描述${hasImages ? '，以及随消息附上的参考图' : ''}。请先解析前置条件，再生成 3 个差异明显的**场景方案**（同一风格调性下的不同拍摄场景），后续会各自展开成完整策划。
 
 需求描述：
 ${text || '（用户没有写字，只上传了参考图，请完全从图片推断）'}
@@ -34,24 +83,51 @@ ${
   hasImages
     ? `
 参考图说明（可能是一张或多张）：
-- 模特图：记住人物的外形、气质、着装，风格方向和后续动作必须适合这个人
+- 模特图：记住人物的外形、气质、着装，方案和后续动作必须适合这个人
 - 场景图：记住环境、光线、可站位，机位和动作必须落在这个真实场景里、现场可执行
 - 解析前置条件时优先从图片取信息，描述里没写的以图为准`
     : ''
 }
+${formatConsensus(consensus)}
 ${LIGHT_KNOWLEDGE}
 
+要求：
+- **3 个方案必须是同一风格调性下的不同场景**（风格已由上面的约定锁定，不要换风格）
+- 场景之间要真的不一样：换地点 / 换时段 / 换氛围，让对方有得挑
+- 方案名 4 字以内，卖点 15 字以内且说清"在哪儿拍、拍出来什么感觉"
+
 输出 JSON 格式：
-{"brief":{"theme":"主题（从描述和图片提炼，如日系情侣写真）","location":"地点","time":"清晨/白天/黄昏/夜晚之一","people":"人物构成（如情侣两人）"},"directions":[{"id":"d1","name":"风格名（4字以内）","tagline":"一句话卖点（15字以内，说清这个方向拍出来是什么感觉）"}]}`
+{"brief":{"theme":"主题（从描述和图片提炼，如日系情侣写真）","location":"地点","time":"清晨/白天/黄昏/夜晚之一","people":"人物构成（如情侣两人）"},"directions":[{"id":"d1","name":"场景方案名（4字以内）","tagline":"一句话卖点（15字以内）"}]}`
+}
+
+/** 把讨论共识渲染成提示词片段；无共识时返回空串 */
+function formatConsensus(consensus?: Consensus | null): string {
+  if (!consensus) return ''
+  const lines = [
+    consensus.style && `- 风格调性：${consensus.style}`,
+    consensus.wardrobe && `- 服装：${consensus.wardrobe}`,
+    consensus.props && `- 道具：${consensus.props}`,
+    consensus.mood && `- 动作与情绪：${consensus.mood}`,
+    consensus.notes && `- 其他约束：${consensus.notes}`,
+  ].filter(Boolean)
+  if (lines.length === 0) return ''
+  return `
+**以下是与被拍者讨论后敲定的拍摄约定，必须严格遵守**（尤其是风格调性，不得擅自更改）：
+${lines.join('\n')}
+`
 }
 
 export function expandSystem(): string {
   return SYSTEM
 }
 
-export function expandUserPrompt(brief: Brief, direction: StyleDirection): string {
+export function expandUserPrompt(
+  brief: Brief,
+  direction: StyleDirection,
+  consensus?: Consensus | null,
+): string {
   const hasImages = brief.referenceImages.length > 0
-  return `被拍者选中了"${direction.name}"这个风格方向（${direction.tagline}）。请展开为一份完整策划。${
+  return `被拍者选了"${direction.name}"这个场景方案（${direction.tagline}）。请展开为一份完整策划。${
     hasImages
       ? `
 
@@ -60,7 +136,7 @@ export function expandUserPrompt(brief: Brief, direction: StyleDirection): strin
 - 场景图：每个机位写成"站在场景图的某个真实位置、朝某个方向"（如"背对图中那排树，坐在台阶上"），不写这个场景里不存在的布景`
       : ''
   }
-
+${formatConsensus(consensus)}${consensus ? '\n以上拍摄约定中的服装、道具、情绪基调必须体现在画面描述里（尤其 tip 可以提醒对方带上道具）。\n' : ''}
 可选姿势标签（画面的 poseTags 只能从这里选，按画面人物数量选单人/双人前缀的标签）：
 ${POSE_TAGS.join('、')}
 

@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Brief, ModelConfig, ShootPlan, StyleDirection, View } from './types'
+import type { Brief, ChatMessage, Consensus, ModelConfig, ShootPlan, StyleDirection, View } from './types'
 import type { BatchState } from './components/PlanView'
-import { LlmError, chatJson, generateImage } from './lib/llm'
+import { LlmError, chatJson, chatText, extractJson, generateImage } from './lib/llm'
 import {
   cardsSystem,
   cardsUserPrompt,
+  consensusPrompt,
+  discussOpeningPrompt,
+  discussSystem,
   expandSystem,
   expandUserPrompt,
   imagePromptFor,
@@ -14,12 +17,25 @@ import {
 import { compressDataUrl } from './lib/image'
 import { loadConfig, listPlans, savePlan } from './lib/storage'
 import BriefForm from './components/BriefForm'
+import Discuss from './components/Discuss'
 import PlanView from './components/PlanView'
 import Library from './components/Library'
 import { CardsLoading, PlanLoading } from './components/Loading'
 
 function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+/** 共识各字段兜底成字符串，缺省即空串（表示"没聊到"） */
+function normalizeConsensus(raw: Partial<Consensus>): Consensus {
+  const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
+  return {
+    style: str(raw.style),
+    wardrobe: str(raw.wardrobe),
+    props: str(raw.props),
+    mood: str(raw.mood),
+    notes: str(raw.notes),
+  }
 }
 
 const EMPTY_DRAFT: Brief = { text: '', referenceImages: [] }
@@ -36,12 +52,24 @@ export default function App() {
   const [stage, setStage] = useState<Stage>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  /** 本次生成的多套策划（方向切换用）；从库打开历史时为单套 */
+  /** 本次生成的多套策划（场景方案切换用）；从库打开历史时为单套 */
   const [batchPlans, setBatchPlans] = useState<ShootPlan[]>([])
   const [planIndex, setPlanIndex] = useState(0)
   const [shotBusy, setShotBusy] = useState<string | null>(null)
   const [batch, setBatch] = useState<BatchState | null>(null)
   const batchStop = useRef(false)
+
+  // ── 讨论环节状态 ──
+  /** 讨论中的消息历史（首条是 AI 的开场回应） */
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  /** 等待模型回复 */
+  const [discussing, setDiscussing] = useState(false)
+  /** 正在归纳共识 */
+  const [summarizing, setSummarizing] = useState(false)
+  /** 归纳出的共识，非空即代表讨论收敛完毕、等待用户确认 */
+  const [consensus, setConsensus] = useState<Consensus | null>(null)
+  /** 讨论对应的前置条件快照（用户回退再改输入时用） */
+  const [discussBrief, setDiscussBrief] = useState<Brief>(EMPTY_DRAFT)
 
   const plan = batchPlans[planIndex] ?? null
 
@@ -55,22 +83,115 @@ export default function App() {
     setView(v)
   }
 
-  /** 展开单个方向为完整策划 */
+  // ─────────────────────────────────────────────
+  // 讨论环节
+  // ─────────────────────────────────────────────
+
+  /** 进入讨论：先让 AI 给出开场建议 + 追问 */
+  const startDiscuss = async (b: Brief) => {
+    if (!config) {
+      setError('模型还没配置：请复制 .env.example 为 .env，填入 VITE_API_KEY 与 VITE_MODEL 后重新构建')
+      return
+    }
+    setError(null)
+    setNotice(null)
+    setConsensus(null)
+    setDiscussBrief(b)
+    setDiscussing(true)
+    setView('discuss')
+    const hasImages = b.referenceImages.length > 0
+    try {
+      let reply: string
+      try {
+        reply = await chatText(config, discussSystem(), discussOpeningPrompt(b.text, hasImages), {
+          images: b.referenceImages,
+        })
+      } catch (err) {
+        if (!hasImages) throw err
+        setNotice('当前模型看不了图，已忽略参考图继续讨论。想贴着参考图聊，请换支持看图的模型（如智谱 glm-4v-flash）')
+        reply = await chatText(config, discussSystem(), discussOpeningPrompt(b.text, false))
+      }
+      setMessages([{ role: 'assistant', content: reply }])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '讨论开场失败，请重试')
+      setView('brief')
+    } finally {
+      setDiscussing(false)
+    }
+  }
+
+  /** 用户在讨论中发一条消息 */
+  const sendDiscussMessage = async (text: string) => {
+    if (!config) return
+    // 注意：history 传的是「这条之前的对话」，text 作为本条 user 消息由 chatText 追加，
+    // 别再往 history 里塞一遍，否则同一条会发两遍
+    const prior = messages
+    setMessages([...prior, { role: 'user', content: text }])
+    setDiscussing(true)
+    setError(null)
+    const hasImages = discussBrief.referenceImages.length > 0
+    try {
+      let reply: string
+      try {
+        reply = await chatText(config, discussSystem(), text, {
+          history: prior,
+          images: discussBrief.referenceImages,
+        })
+      } catch (err) {
+        if (!hasImages) throw err
+        reply = await chatText(config, discussSystem(), text, { history: prior })
+      }
+      setMessages([...prior, { role: 'user', content: text }, { role: 'assistant', content: reply }])
+    } catch (err) {
+      // 回复失败时把用户那条也撤掉，避免历史里留下没有回应的孤句
+      setMessages(prior)
+      setError(err instanceof Error ? err.message : '发送失败，请重试')
+    } finally {
+      setDiscussing(false)
+    }
+  }
+
+  /** 让 AI 把讨论归纳成拍摄约定 */
+  const summarizeDiscuss = async () => {
+    if (!config || messages.length === 0) return
+    setSummarizing(true)
+    setError(null)
+    try {
+      // 走 chatText 而非 chatJson：归纳需要带上完整讨论历史作为上下文
+      const raw = await chatText(config, discussSystem(), consensusPrompt(), { history: messages })
+      const parsed = extractJson<Partial<Consensus>>(raw)
+      setConsensus(normalizeConsensus(parsed))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '整理失败，请重试')
+    } finally {
+      setSummarizing(false)
+    }
+  }
+
+  /** 对共识不满意：清掉共识，回到继续聊 */
+  const redoConsensus = () => setConsensus(null)
+
+  /** 展开单个场景方案为完整策划 */
   const expandDirection = async (
     cfg: ModelConfig,
     brief: Brief,
     direction: StyleDirection,
+    consensus: Consensus | null,
     dropImagesNote: () => void,
   ): Promise<ShootPlan> => {
     let data: { title: string; scenes: unknown }
     try {
-      data = await chatJson(cfg, expandSystem(), expandUserPrompt(brief, direction), {
+      data = await chatJson(cfg, expandSystem(), expandUserPrompt(brief, direction, consensus), {
         images: brief.referenceImages,
       })
     } catch (err) {
       if (brief.referenceImages.length === 0) throw err
       dropImagesNote()
-      data = await chatJson(cfg, expandSystem(), expandUserPrompt({ ...brief, referenceImages: [] }, direction))
+      data = await chatJson(
+        cfg,
+        expandSystem(),
+        expandUserPrompt({ ...brief, referenceImages: [] }, direction, consensus),
+      )
     }
     const scenes = normalizeScenes(data.scenes).filter((s) => s.shots.length > 0)
     if (scenes.length === 0) throw new LlmError(`「${direction.name}」没有生成有效内容，请重试`)
@@ -84,8 +205,8 @@ export default function App() {
     }
   }
 
-  /** 主流程：解析前置条件 + 风格方向 → 并行展开全部方向 → 直接展示多套文字策划 */
-  const generateAll = async (b: Brief) => {
+  /** 主流程：解析前置条件 + 场景方案 → 并行展开全部方案 → 直接展示多套文字策划 */
+  const generateAll = async (b: Brief, consensus: Consensus | null) => {
     if (!config) {
       setError('模型还没配置：请复制 .env.example 为 .env，填入 VITE_API_KEY 与 VITE_MODEL 后重新构建')
       return
@@ -93,6 +214,7 @@ export default function App() {
     setError(null)
     setNotice(null)
     setStage('directions')
+    const hasImages = b.referenceImages.length > 0
     let notices: string[] = []
     try {
       let data: {
@@ -100,24 +222,24 @@ export default function App() {
         directions: StyleDirection[]
       }
       try {
-        data = await chatJson(config, cardsSystem(), cardsUserPrompt(b.text, b.referenceImages.length > 0), {
+        data = await chatJson(config, cardsSystem(), cardsUserPrompt(b.text, hasImages, consensus), {
           images: b.referenceImages,
         })
       } catch (err) {
-        if (b.referenceImages.length === 0) throw err
+        if (!hasImages) throw err
         notices.push('当前模型看不了图，已忽略参考图生成。想让方案贴着参考图出，请换支持看图的模型（如智谱 glm-4v-flash）')
-        data = await chatJson(config, cardsSystem(), cardsUserPrompt(b.text, false))
+        data = await chatJson(config, cardsSystem(), cardsUserPrompt(b.text, false, consensus))
       }
       const dirs = (data.directions ?? []).filter((d) => d.name && d.tagline)
-      if (dirs.length === 0) throw new LlmError('模型没有给出有效的风格方向，请重试')
+      if (dirs.length === 0) throw new LlmError('模型没有给出有效的场景方案，请重试')
       const parsedBrief = mergeParsedBrief(b, data.brief)
 
       setStage('expand')
       const results = await Promise.allSettled(
         dirs.map((d) =>
-          expandDirection(config, parsedBrief, d, () => {
+          expandDirection(config, parsedBrief, d, consensus, () => {
             if (!notices.some((n) => n.includes('看不了图'))) {
-              notices.push('部分方向生成时模型看不了图，已忽略参考图')
+              notices.push('部分方案生成时模型看不了图，已忽略参考图')
             }
           }),
         ),
@@ -129,7 +251,7 @@ export default function App() {
         throw firstErr?.reason instanceof Error ? firstErr.reason : new LlmError('生成失败，请重试')
       }
       if (results.length - ok.length > 0) {
-        notices.push(`${results.length - ok.length} 个风格方向生成失败，已展示成功的部分`)
+        notices.push(`${results.length - ok.length} 个场景方案生成失败，已展示成功的部分`)
       }
       if (notices.length > 0) setNotice(notices.join('；'))
       setBatchPlans(ok)
@@ -244,8 +366,23 @@ export default function App() {
         ) : stage === 'expand' ? (
           <PlanLoading count={3} />
         ) : (
-          <BriefForm value={draft} onChange={setDraft} onSubmit={generateAll} />
+          <BriefForm value={draft} onChange={setDraft} onSubmit={startDiscuss} />
         ))}
+
+      {view === 'discuss' && (
+        <Discuss
+          brief={discussBrief}
+          messages={messages}
+          consensus={consensus}
+          busy={discussing}
+          summarizing={summarizing}
+          onSend={sendDiscussMessage}
+          onSummarize={summarizeDiscuss}
+          onConfirm={() => generateAll(discussBrief, consensus)}
+          onRedoConsensus={redoConsensus}
+          onBack={() => nav('brief')}
+        />
+      )}
 
       {view === 'plan' && plan && (
         <>

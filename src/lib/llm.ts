@@ -1,4 +1,4 @@
-import type { ImageGenConfig, ModelConfig } from '../types'
+import type { ChatMessage, ImageGenConfig, ModelConfig } from '../types'
 import { urlToDataUrl } from './image'
 
 export interface ProviderPreset {
@@ -118,24 +118,26 @@ export async function listImageModels(baseURL: string, apiKey: string): Promise<
 
 export class LlmError extends Error {}
 
-async function chatOnce(
+/** 发给接口的一条消息；content 为字符串或（附图时的）多模态数组 */
+type WireMessage = { role: 'system' | 'user' | 'assistant'; content: unknown }
+
+/** 一张参考图转成 OpenAI 兼容的多模态片段 */
+type ContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }
+
+/** 把文本 + 可选参考图拼成 user 消息内容；无图时退化为纯字符串 */
+function userContent(text: string, images: string[]): string | ContentPart[] {
+  if (images.length === 0) return text
+  return [{ type: 'text', text }, ...images.map((url) => ({ type: 'image_url' as const, image_url: { url } }))]
+}
+
+/** 底层请求：发一组消息拿回复文本。所有模型调用最终都汇聚到这里 */
+async function postChat(
   config: ModelConfig,
-  system: string,
-  user: string,
+  messages: WireMessage[],
   jsonMode: boolean,
-  images: string[] = [],
 ): Promise<string> {
   if (!config.apiKey) throw new LlmError('还没配置模型：请在 .env 里填 VITE_API_KEY')
   if (!config.baseURL || !config.model) throw new LlmError('模型配置不完整：请在 .env 里检查 VITE_BASE_URL 与 VITE_MODEL')
-
-  // 附图时直接用主模型；不支持看图的模型会在上层触发"去图重试"降级
-  const userContent =
-    images.length > 0
-      ? [
-          { type: 'text', text: user },
-          ...images.map((url) => ({ type: 'image_url', image_url: { url } })),
-        ]
-      : user
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 120_000)
@@ -148,12 +150,10 @@ async function chatOnce(
       },
       body: JSON.stringify({
         model: config.model,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: userContent },
-        ],
+        messages,
         temperature: 0.8,
-        ...(jsonMode && images.length === 0 ? { response_format: { type: 'json_object' } } : {}),
+        // 附图 + JSON 模式不兼容，见 chatOnce 的说明
+        ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
       }),
       signal: controller.signal,
     })
@@ -178,6 +178,24 @@ async function chatOnce(
   } finally {
     clearTimeout(timer)
   }
+}
+
+async function chatOnce(
+  config: ModelConfig,
+  system: string,
+  user: string,
+  jsonMode: boolean,
+  images: string[] = [],
+): Promise<string> {
+  // 附图时不用 response_format：部分厂商（如智谱）与多模态同时用会报错
+  return postChat(
+    config,
+    [
+      { role: 'system', content: system },
+      { role: 'user', content: userContent(user, images) },
+    ],
+    jsonMode && images.length === 0,
+  )
 }
 
 /** 从模型输出中提取 JSON（容忍 markdown 代码围栏等杂质） */
@@ -216,6 +234,33 @@ export async function chatJson<T>(
     }
   }
   throw lastErr
+}
+
+export interface ChatTextOpts {
+  /** 多轮历史（不含 system 与最后一条 user） */
+  history?: ChatMessage[]
+  /** 可选：随消息附上的参考图 dataURL 列表，需模型支持看图 */
+  images?: string[]
+}
+
+/**
+ * 多轮对话，返回纯文本回复（讨论环节用）。
+ *
+ * 参考图附在**最后一条 user 消息**上而不是整个历史里：多数厂商不允许多条消息
+ * 同时带图，且每轮重复传图会显著拉高 token 消耗。
+ */
+export async function chatText(
+  config: ModelConfig,
+  system: string,
+  user: string,
+  opts: ChatTextOpts = {},
+): Promise<string> {
+  const messages: WireMessage[] = [{ role: 'system', content: system }]
+  for (const m of opts.history ?? []) {
+    messages.push({ role: m.role, content: m.content })
+  }
+  messages.push({ role: 'user', content: userContent(user, opts.images ?? []) })
+  return postChat(config, messages, false)
 }
 
 /** 生成一张参考片；附参考图时走图生图（base64 直传），返回 dataURL 或远程 URL */
