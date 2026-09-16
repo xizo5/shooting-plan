@@ -4,4 +4,9 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  server: {
+    allowedHosts: [
+      'retaining-dingy-impotence.ngrok-free.dev'
+    ]
+  }
 })

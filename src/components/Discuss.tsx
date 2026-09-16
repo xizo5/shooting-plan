@@ -28,12 +28,19 @@ export default function Discuss({
   onSummarize,
 }: Props) {
   const [draft, setDraft] = useState('')
-  const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
 
-  // 新消息进来时滚到底。流式期间内容长度在变，所以用最后一条的长度也做依赖
+  /**
+   * 新消息进来时滚到底。
+   *
+   * 用容器的 scrollTop 而不是 scrollIntoView —— 后者会连带滚动所有可滚动的祖先，
+   * 在这套"外层锁死、只有中间滚"的布局里会把整个页面顶起来。
+   * 流式期间内容长度在变，所以依赖里带上最后一条的长度。
+   */
   const tailLen = messages[messages.length - 1]?.content.length ?? 0
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
   }, [messages.length, tailLen, busy, consensus])
 
   const submit = () => {
@@ -47,30 +54,34 @@ export default function Discuss({
   const frozen = consensus !== null
 
   return (
-    <div className="flex min-h-[calc(100dvh-10rem)] flex-col space-y-4">
-      <div>
-        <h2 className="text-xl font-bold">先聊聊怎么拍</h2>
-        <p className="mt-1 text-sm text-neutral-500">
-          不用急着定。说说你想要的调性和场景，AI 帮你补上服装、道具和动作，聊顺了再出完整策划。
-        </p>
+    // h-full 依赖父级给出确定高度（App 在讨论页把容器锁成 dvh），
+    // 三段布局：标题区/输入区固定不动，中间对话区自己滚
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0 space-y-3 pb-3">
+        <div>
+          <h2 className="text-xl font-bold">先聊聊怎么拍</h2>
+          <p className="mt-1 text-sm text-neutral-500">
+            不用急着定。说说你想要的调性和场景，AI 帮你补上服装、道具和动作，聊顺了再出完整策划。
+          </p>
+        </div>
+
+        {/* 初始需求回显 */}
+        {brief.referenceImages.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {brief.referenceImages.map((src, i) => (
+              <img
+                key={i}
+                src={src}
+                alt={`参考图 ${i + 1}`}
+                className="h-16 w-16 rounded-xl border border-neutral-200 object-cover"
+              />
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* 初始需求回显 */}
-      {brief.referenceImages.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {brief.referenceImages.map((src, i) => (
-            <img
-              key={i}
-              src={src}
-              alt={`参考图 ${i + 1}`}
-              className="h-16 w-16 rounded-xl border border-neutral-200 object-cover"
-            />
-          ))}
-        </div>
-      )}
-
-      {/* 对话区 */}
-      <div className="space-y-3">
+      {/* 对话区：唯一可滚动的部分 */}
+      <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pb-3">
         {messages.map((m, i) =>
           m.role === 'user' ? (
             <div key={i} className="flex justify-end">
@@ -93,53 +104,53 @@ export default function Discuss({
             </div>
           ),
         )}
-        <div ref={bottomRef} />
       </div>
 
-      {/* 约定已出：本页收尾，把决定权交给第 2 步 */}
-      {frozen && (
-        <p className="rounded-xl bg-neutral-100 px-4 py-3 text-center text-sm text-neutral-500">
-          已经整理好了，去下一步确认
-        </p>
-      )}
+      {/* 底部固定区：约定提示 / 输入区，都不参与滚动 */}
+      <div className="shrink-0 space-y-3 border-t border-neutral-200/70 pt-3 pb-4">
+        {frozen && (
+          <p className="rounded-xl bg-neutral-100 px-4 py-3 text-center text-sm text-neutral-500">
+            已经整理好了，去下一步确认
+          </p>
+        )}
 
-      {/* 还在聊：输入区 */}
-      {!frozen && (
-        <div className="space-y-3">
-          {!busy && messages.some((m) => m.role === 'assistant' && m.content.trim()) && (
-            <button
-              onClick={onSummarize}
-              disabled={summarizing}
-              className="w-full rounded-xl border border-neutral-900 py-3 text-sm font-medium text-neutral-900 disabled:opacity-40"
-            >
-              {summarizing ? '正在整理…' : '聊得差不多了，整理成拍摄约定'}
-            </button>
-          )}
+        {!frozen && (
+          <>
+            {!busy && messages.some((m) => m.role === 'assistant' && m.content.trim()) && (
+              <button
+                onClick={onSummarize}
+                disabled={summarizing}
+                className="w-full rounded-xl border border-neutral-900 py-3 text-sm font-medium text-neutral-900 disabled:opacity-40"
+              >
+                {summarizing ? '正在整理…' : '聊得差不多了，整理成拍摄约定'}
+              </button>
+            )}
 
-          <div className="flex gap-2">
-            <textarea
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  submit()
-                }
-              }}
-              rows={2}
-              placeholder="接着说，比如「我有点怕镜头，动作别太夸张」"
-              className="min-w-0 flex-1 resize-none rounded-xl border border-neutral-200 px-3 py-2.5 text-sm outline-none focus:border-neutral-900"
-            />
-            <button
-              onClick={submit}
-              disabled={!draft.trim() || busy}
-              className="shrink-0 rounded-xl bg-neutral-900 px-4 text-sm font-medium text-white disabled:opacity-30"
-            >
-              {busy ? '回复中…' : '发送'}
-            </button>
-          </div>
-        </div>
-      )}
+            <div className="flex gap-2">
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    submit()
+                  }
+                }}
+                rows={2}
+                placeholder="接着说，比如「我有点怕镜头，动作别太夸张」"
+                className="min-w-0 flex-1 resize-none rounded-xl border border-neutral-200 px-3 py-2.5 text-sm outline-none focus:border-neutral-900"
+              />
+              <button
+                onClick={submit}
+                disabled={!draft.trim() || busy}
+                className="shrink-0 rounded-xl bg-neutral-900 px-4 text-sm font-medium text-white disabled:opacity-30"
+              >
+                {busy ? '回复中…' : '发送'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 }

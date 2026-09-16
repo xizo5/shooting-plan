@@ -408,55 +408,69 @@ export default function App() {
   /** 当前处在第几步；library 不属于流程，为 null（不显示步骤条） */
   const step = stepOf(view)
 
+  /**
+   * 讨论页要"头尾固定、中间独立滚动"，所以整页得锁成 dvh 高度、禁止外层滚动；
+   * 其他页面内容可能很长，仍按整页滚动处理。
+   */
+  const locked = view === 'discuss'
+
   return (
-    <div className="mx-auto min-h-dvh max-w-md bg-neutral-50 px-4 pb-10 pt-4">
-      <header className="mb-5 flex items-center justify-between">
-        <span className="text-sm font-bold tracking-wide">出片助手</span>
-        <nav className="flex gap-1">
-          <button
-            onClick={() => nav('library')}
-            className="rounded-lg px-3 py-1.5 text-sm text-neutral-600 hover:bg-neutral-200/60"
-          >
-            我的策划
-          </button>
-        </nav>
-      </header>
+    <div
+      className={`mx-auto flex max-w-md flex-col bg-neutral-50 px-4 ${
+        locked ? 'h-dvh overflow-hidden pb-0 pt-4' : 'min-h-dvh pb-10 pt-4'
+      }`}
+    >
+      {/* 顶部区域：header + 提示 + 步骤条。讨论页里它是固定的，不参与滚动 */}
+      <div className="shrink-0">
+        <header className="mb-5 flex items-center justify-between">
+          <span className="text-sm font-bold tracking-wide">出片助手</span>
+          <nav className="flex gap-1">
+            <button
+              onClick={() => nav('library')}
+              className="rounded-lg px-3 py-1.5 text-sm text-neutral-600 hover:bg-neutral-200/60"
+            >
+              我的策划
+            </button>
+          </nav>
+        </header>
 
-      {error && (
-        <div className="mb-4 rounded-xl bg-red-50 px-4 py-3 text-sm leading-relaxed text-red-700">
-          {error}
-        </div>
-      )}
-      {notice && (
-        <div className="mb-4 rounded-xl bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-700">
-          {notice}
-        </div>
-      )}
-      {toast && (
-        <div className="mb-4 flex items-start gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-sm leading-relaxed text-emerald-800">
-          <span className="shrink-0">✓</span>
-          <span className="flex-1">{toast}</span>
-          <button
-            onClick={() => setToast(null)}
-            className="shrink-0 text-emerald-600/70 hover:text-emerald-800"
-            aria-label="关闭提示"
-          >
-            ×
-          </button>
-        </div>
-      )}
+        {error && (
+          <div className="mb-4 rounded-xl bg-red-50 px-4 py-3 text-sm leading-relaxed text-red-700">
+            {error}
+          </div>
+        )}
+        {notice && (
+          <div className="mb-4 rounded-xl bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-700">
+            {notice}
+          </div>
+        )}
+        {toast && (
+          <div className="mb-4 flex items-start gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-sm leading-relaxed text-emerald-800">
+            <span className="shrink-0">✓</span>
+            <span className="flex-1">{toast}</span>
+            <button
+              onClick={() => setToast(null)}
+              className="shrink-0 text-emerald-600/70 hover:text-emerald-800"
+              aria-label="关闭提示"
+            >
+              ×
+            </button>
+          </div>
+        )}
 
-      {/* 步骤条：brief / discuss 是第 1 步，confirm 是第 2 步，plan 是第 3 步。
-          library 不属于流程，不显示。 */}
-      {step !== null && (
-        <Steps
-          current={step}
-          onGo={(s: Step) => {
-            if (s === 1) nav('brief')
-            else if (s === 2 && consensus) nav('confirm')
-          }}
-        />
-      )}
+        {/* 步骤条：brief / discuss 是第 1 步，confirm 是第 2 步，plan 是第 3 步。
+            library 不属于流程，不显示。 */}
+        {step !== null && (
+          <Steps
+            current={step}
+            onGo={(s: Step) => {
+              if (s === 1) nav('brief')
+              else if (s === 2 && consensus) nav('confirm')
+            }}
+          />
+        )}
+      </div>
+
 
       {view === 'brief' &&
         (stage === 'directions' ? (
@@ -468,15 +482,18 @@ export default function App() {
         ))}
 
       {view === 'discuss' && (
-        <Discuss
-          brief={discussBrief}
-          messages={messages}
-          consensus={consensus}
-          busy={discussing}
-          summarizing={summarizing}
-          onSend={sendDiscussMessage}
-          onSummarize={summarizeDiscuss}
-        />
+        // min-h-0 是必须的：flex 子项默认 min-height:auto，不加就撑破父级、滚动条跑到整页上去
+        <div className="flex min-h-0 flex-1 flex-col">
+          <Discuss
+            brief={discussBrief}
+            messages={messages}
+            consensus={consensus}
+            busy={discussing}
+            summarizing={summarizing}
+            onSend={sendDiscussMessage}
+            onSummarize={summarizeDiscuss}
+          />
+        </div>
       )}
 
       {/* 第 2 步：纯净的约定确认页（不带聊天记录），字段可直接改 */}

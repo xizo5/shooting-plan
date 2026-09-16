@@ -1,6 +1,6 @@
 import type { View } from '../types'
 
-/** 三步：说想法 → 定约定 → 出方案。与 View 的映射写在 STEPS 里，加步骤只改这里 */
+/** 三步：说想法 → 定约定 → 出方案。与 View 的映射写在 stepOf 里，加步骤只改这里 */
 export type Step = 1 | 2 | 3
 
 interface Props {
@@ -23,18 +23,35 @@ export function stepOf(view: View): Step | null {
   return null
 }
 
+/**
+ * 步骤条：三格严格等宽。
+ *
+ * 用 grid-cols-3 而不是 flex —— flex 下胶囊的宽度由内容决定，
+ * 三格永远差几像素，看着不齐。等宽后连接线也各占一半、天然居中。
+ */
 export default function Steps({ current, onGo }: Props) {
   return (
-    <nav aria-label="流程步骤" className="mb-5 flex items-center gap-1 overflow-hidden">
+    <nav aria-label="流程步骤" className="mb-5 grid grid-cols-3">
       {STEPS.map(({ n, label }, i) => {
         const done = n < current
         const active = n === current
         const clickable = done && !!onGo
         return (
-          <div key={n} className="flex min-w-0 items-center gap-1" style={{ flex: n === current ? 1.6 : 1 }}>
+          <div key={n} className="relative flex items-center justify-center">
+            {/* 连接线：左半边 + 右半边，各画一半所以接缝正好落在格子边界上 */}
             {i > 0 && (
               <span
-                className={`h-px min-w-2 flex-1 ${done || active ? 'bg-neutral-900' : 'bg-neutral-200'}`}
+                className={`absolute left-0 top-1/2 h-px w-1/2 -translate-y-1/2 ${
+                  done || active ? 'bg-neutral-900' : 'bg-neutral-200'
+                }`}
+                aria-hidden
+              />
+            )}
+            {i < STEPS.length - 1 && (
+              <span
+                className={`absolute right-0 top-1/2 h-px w-1/2 -translate-y-1/2 ${
+                  n < current ? 'bg-neutral-900' : 'bg-neutral-200'
+                }`}
                 aria-hidden
               />
             )}
@@ -43,12 +60,12 @@ export default function Steps({ current, onGo }: Props) {
               onClick={clickable ? () => onGo!(n) : undefined}
               disabled={!clickable}
               aria-current={active ? 'step' : undefined}
-              className={`flex min-w-0 shrink-0 items-center gap-1.5 rounded-full py-1 pl-1 pr-2 text-xs transition-colors ${
+              className={`relative z-10 flex items-center gap-1.5 rounded-full py-1 pl-1 pr-2.5 text-xs transition-colors ${
                 active
                   ? 'bg-neutral-900 font-medium text-white'
                   : done
                     ? 'text-neutral-700 hover:bg-neutral-200/70'
-                    : 'text-neutral-300'
+                    : 'bg-neutral-50 text-neutral-300'
               } ${clickable ? 'cursor-pointer' : 'cursor-default'}`}
             >
               <span

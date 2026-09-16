@@ -13,16 +13,23 @@
 
 ## 核心流程
 
-**先进讨论、再出策划**：填完 Brief 不直接生成，先开一轮对话把风格谈拢，谈拢了才烧钱生成。生成分两阶段，第二阶段并行：
+**三步走 + 讨论先于生成**：填完 Brief 不直接生成，先开一轮对话把风格谈拢，谈拢后进一个**干净的确认页**复核，复核完才烧钱生成。
 
 ```
-Brief（text + ≤4 张参考图）
+step 1  说想法（view: brief → discuss）
+  │   Brief（text + ≤4 张参考图）
   │
   ├─ 阶段 0  讨论环节 **流式**（chatTextStream）              【多轮，逐字显示】
   │    ├→ 开场：discussOpeningPrompt(text, hasImages) 抛出 2-3 个关键问题
   │    ├→ 多轮：每轮 history = 本轮之前的全部对话，新消息作为 user 追加
   │    └→ 用户点「整理成拍摄约定」→ chatText(consensusPrompt) + extractJson
-  │         └→ consensus: Consensus | null（null = 没谈拢，可「继续聊」）
+  │
+step 2  定约定（view: confirm）—— Discuss 与 Confirm 的分界线
+  │    ├→ 独立页面，**不带聊天记录**：只放约定本身，加字段可编辑
+  │    ├→ 字段失焦才 setConsensus（边打字边同步会触发 App 重渲染，长文本卡）
+  │    └→ 用户点「就按这个生成」
+  │
+step 3  出方案（view: plan）
   │
   ├─ 阶段 1  chatJson(cardsSystem, cardsUserPrompt(text, hasImages, consensus))   【快】
   │    ├→ brief.{theme,location,time,people}   由 AI 从文本+图片解析回填
@@ -37,6 +44,10 @@ Brief（text + ≤4 张参考图）
   │
   └─ 参考片按需生成：单张（produceImage）或批量（runBatch，可中断）
 ```
+
+**步骤条与 View 的映射**写在 `Steps.tsx` 的 `stepOf()` 里，加/改步骤只改那一处。`library` 不属于流程，`stepOf` 返回 `null`（不显示步骤条）。
+
+**讨论页与确认页的分工**（这是本设计最容易改错的地方）：`Discuss` 只管聊，**不含任何确认 UI**；一旦 `consensus` 非空，它的输入区就冻结并提示"去下一步确认"。`Confirm` 只管复核与改，不含聊天记录。所以：**从 Confirm 点「继续聊」回 Discuss 时必须把 `consensus` 清成 null**，否则 Discuss 还认为约定已出、输入区冻着，用户回去了却打不了字（踩过）。
 
 **共识必须钉进 prompt**：`consensus` 经 `formatConsensus()`（`prompts.ts`）注入阶段 1 与阶段 2 两处。少注入一处，风格就会在展开时跑偏——这是本环节唯一容易漏的地方。风格锁定后，「3 套」的差异只能来自场景，prompt 里已明确禁止换风格。
 
