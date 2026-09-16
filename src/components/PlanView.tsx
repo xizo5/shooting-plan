@@ -37,11 +37,8 @@ export default function PlanView({
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <button onClick={onBack} className="text-sm text-neutral-500">
-            ← 我的策划
-          </button>
-          <h2 className="mt-2 text-xl font-bold">{plan.title}</h2>
+        <div className="min-w-0">
+          <h2 className="text-xl font-bold">{plan.title}</h2>
           <p className="mt-1 text-sm text-neutral-500">
             {[plan.brief.theme, plan.brief.location, plan.brief.time, plan.directionName]
               .filter(Boolean)
@@ -132,7 +129,16 @@ export default function PlanView({
         </section>
       ))}
 
-      <p className="pb-4 text-center text-xs text-neutral-300">出片助手 · AI 拍摄策划</p>
+      {/* 步骤条已占掉顶部，这里给个明确出口 */}
+      <div className="flex flex-col items-center gap-2 pb-4">
+        <button
+          onClick={onBack}
+          className="rounded-xl border border-neutral-200 px-4 py-2 text-sm text-neutral-600"
+        >
+          去「我的策划」看全部
+        </button>
+        <p className="text-center text-xs text-neutral-300">出片助手 · AI 拍摄策划</p>
+      </div>
     </div>
   )
 }

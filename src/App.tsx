@@ -18,8 +18,10 @@ import { compressDataUrl } from './lib/image'
 import { loadConfig, listPlans, savePlan } from './lib/storage'
 import BriefForm from './components/BriefForm'
 import Discuss from './components/Discuss'
+import Confirm from './components/Confirm'
 import PlanView from './components/PlanView'
 import Library from './components/Library'
+import Steps, { stepOf, type Step } from './components/Steps'
 import { CardsLoading, PlanLoading } from './components/Loading'
 
 function uid() {
@@ -196,7 +198,7 @@ export default function App() {
     }
   }
 
-  /** 让 AI 把讨论归纳成拍摄约定 */
+  /** 让 AI 把讨论归纳成拍摄约定，成功后进入第 2 步确认 */
   const summarizeDiscuss = async () => {
     if (!config || messages.length === 0) return
     setSummarizing(true)
@@ -206,6 +208,8 @@ export default function App() {
       const raw = await chatText(config, discussSystem(), consensusPrompt(), { history: messages })
       const parsed = extractJson<Partial<Consensus>>(raw)
       setConsensus(normalizeConsensus(parsed))
+      // 归纳完直接进第 2 步：那是个干净页面，不再夹着聊天记录
+      setView('confirm')
     } catch (err) {
       setError(err instanceof Error ? err.message : '整理失败，请重试')
     } finally {
@@ -213,8 +217,18 @@ export default function App() {
     }
   }
 
-  /** 对共识不满意：清掉共识，回到继续聊 */
-  const redoConsensus = () => setConsensus(null)
+  /** 第 2 步里改过的约定：写回并同步进这套讨论快照 */
+  const updateConsensus = (next: Consensus) => setConsensus(next)
+
+  /**
+   * 从第 2 步回讨论页接着聊。
+   * 必须清掉 consensus —— 否则 Discuss 会认为"约定已出"而把输入区冻住，
+   * 用户回去了却没法说话。
+   */
+  const backToDiscuss = () => {
+    setConsensus(null)
+    nav('discuss')
+  }
 
   /** 展开单个场景方案为完整策划 */
   const expandDirection = async (
@@ -391,6 +405,9 @@ export default function App() {
     if (failed > 0) setNotice(`${failed} 张参考片生成失败，可单独重试或检查生图配置`)
   }
 
+  /** 当前处在第几步；library 不属于流程，为 null（不显示步骤条） */
+  const step = stepOf(view)
+
   return (
     <div className="mx-auto min-h-dvh max-w-md bg-neutral-50 px-4 pb-10 pt-4">
       <header className="mb-5 flex items-center justify-between">
@@ -429,6 +446,18 @@ export default function App() {
         </div>
       )}
 
+      {/* 步骤条：brief / discuss 是第 1 步，confirm 是第 2 步，plan 是第 3 步。
+          library 不属于流程，不显示。 */}
+      {step !== null && (
+        <Steps
+          current={step}
+          onGo={(s: Step) => {
+            if (s === 1) nav('brief')
+            else if (s === 2 && consensus) nav('confirm')
+          }}
+        />
+      )}
+
       {view === 'brief' &&
         (stage === 'directions' ? (
           <CardsLoading />
@@ -444,22 +473,44 @@ export default function App() {
           messages={messages}
           consensus={consensus}
           busy={discussing}
-          generating={stage !== null}
           summarizing={summarizing}
           onSend={sendDiscussMessage}
           onSummarize={summarizeDiscuss}
-          onConfirm={() => {
-            // 双保险：按钮本身会用 generating 置灰，这里再挡一次连点
-            if (stage === null) generateAll(discussBrief, consensus)
-          }}
-          onRedoConsensus={redoConsensus}
-          onBack={() => nav('brief')}
         />
       )}
 
-      {/* 确认生成后：讨论页原地切到等待动画，用户知道点到了、正在干活 */}
-      {view === 'discuss' && stage !== null && (
-        <div className="mt-6">
+      {/* 第 2 步：纯净的约定确认页（不带聊天记录），字段可直接改 */}
+      {view === 'confirm' &&
+        (consensus ? (
+          <Confirm
+            brief={discussBrief}
+            consensus={consensus}
+            generating={stage !== null}
+            onChange={updateConsensus}
+            onConfirm={() => {
+              // 双保险：按钮本身会置灰，这里再挡一次连点
+              if (stage === null) generateAll(discussBrief, consensus)
+            }}
+            onBackToDiscuss={backToDiscuss}
+          />
+        ) : (
+          // 直接刷新 / 回退到这一步但没有约定（约定不落库），退回讨论
+          <div className="space-y-3">
+            <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-700">
+              拍摄约定还没整理出来。回到上一步接着聊，聊完点「整理成拍摄约定」。
+            </p>
+            <button
+              onClick={() => nav('discuss')}
+              className="w-full rounded-xl bg-neutral-900 py-3 text-sm font-medium text-white"
+            >
+              回去接着聊
+            </button>
+          </div>
+        ))}
+
+      {/* 生成中：第 2 步原地切到等待动画，用户知道点到了、正在干活 */}
+      {view === 'confirm' && stage !== null && (
+        <div className="mt-5">
           {stage === 'directions' ? <CardsLoading /> : <PlanLoading count={3} />}
         </div>
       )}

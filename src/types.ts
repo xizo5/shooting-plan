@@ -104,4 +104,4 @@ export interface ModelConfig {
   imageGen?: ImageGenConfig | null
 }
 
-export type View = 'brief' | 'discuss' | 'plan' | 'library'
+export type View = 'brief' | 'discuss' | 'confirm' | 'plan' | 'library'

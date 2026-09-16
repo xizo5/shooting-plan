@@ -43,9 +43,9 @@ export default function BriefForm({ value, onChange, onSubmit, busy }: Props) {
 
   return (
     <div className="space-y-5">
-      <div className="rounded-2xl bg-neutral-900 p-5 text-white">
-        <h1 className="text-xl font-bold">告诉我你想怎么拍</h1>
-        <p className="mt-1 text-sm text-neutral-400">
+      <div>
+        <h2 className="text-xl font-bold">告诉我你想怎么拍</h2>
+        <p className="mt-1 text-sm text-neutral-500">
           一句话描述你的拍摄想法，AI 会先和你把服装、道具、动作聊清楚，确认后再出完整策划。
         </p>
       </div>

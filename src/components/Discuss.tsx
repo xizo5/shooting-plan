@@ -6,45 +6,26 @@ interface Props {
   /** 初始需求（来自前置条件页） */
   brief: Brief
   messages: ChatMessage[]
+  /** 已归纳出约定（此时会被送去第 2 步确认，本页不再显示输入区） */
   consensus: Consensus | null
   /** 正在等模型回复（流式接收中） */
   busy: boolean
-  /** 已确认生成、正在出方案 —— 期间禁止再次点击 */
-  generating: boolean
   /** 正在归纳共识 */
   summarizing: boolean
   /** 用户发送一条消息 */
   onSend: (text: string) => void
   /** 让 AI 归纳出共识 */
   onSummarize: () => void
-  /** 确认共识，开始生成 */
-  onConfirm: () => void
-  /** 重新归纳（对共识不满意） */
-  onRedoConsensus: () => void
-  onBack: () => void
 }
-
-/** 共识字段 → 中文标签 */
-const FIELDS: Array<{ key: keyof Consensus; label: string }> = [
-  { key: 'style', label: '风格调性' },
-  { key: 'wardrobe', label: '服装' },
-  { key: 'props', label: '道具' },
-  { key: 'mood', label: '动作与情绪' },
-  { key: 'notes', label: '其他' },
-]
 
 export default function Discuss({
   brief,
   messages,
   consensus,
   busy,
-  generating,
   summarizing,
   onSend,
   onSummarize,
-  onConfirm,
-  onRedoConsensus,
-  onBack,
 }: Props) {
   const [draft, setDraft] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -62,15 +43,13 @@ export default function Discuss({
     onSend(text)
   }
 
-  const hasContent = Object.values(consensus ?? {}).some((v) => v?.trim())
+  /** 约定出来了就让位给第 2 步，本页只留聊天记录供回看 */
+  const frozen = consensus !== null
 
   return (
-    <div className="flex min-h-[calc(100dvh-6rem)] flex-col space-y-4">
+    <div className="flex min-h-[calc(100dvh-10rem)] flex-col space-y-4">
       <div>
-        <button onClick={onBack} className="text-sm text-neutral-500">
-          ← 改拍摄想法
-        </button>
-        <h2 className="mt-2 text-xl font-bold">先聊聊怎么拍</h2>
+        <h2 className="text-xl font-bold">先聊聊怎么拍</h2>
         <p className="mt-1 text-sm text-neutral-500">
           不用急着定。说说你想要的调性和场景，AI 帮你补上服装、道具和动作，聊顺了再出完整策划。
         </p>
@@ -117,8 +96,15 @@ export default function Discuss({
         <div ref={bottomRef} />
       </div>
 
-      {/* 讨论没结束：继续聊 */}
-      {!consensus && !generating && (
+      {/* 约定已出：本页收尾，把决定权交给第 2 步 */}
+      {frozen && (
+        <p className="rounded-xl bg-neutral-100 px-4 py-3 text-center text-sm text-neutral-500">
+          已经整理好了，去下一步确认
+        </p>
+      )}
+
+      {/* 还在聊：输入区 */}
+      {!frozen && (
         <div className="space-y-3">
           {!busy && messages.some((m) => m.role === 'assistant' && m.content.trim()) && (
             <button
@@ -154,59 +140,7 @@ export default function Discuss({
           </div>
         </div>
       )}
-
-      {/* 共识确认卡 */}
-      {consensus && (
-        <div className="space-y-3 rounded-2xl border border-neutral-900 bg-white p-4">
-          <div>
-            <h3 className="font-semibold">拍摄约定</h3>
-            <p className="mt-0.5 text-xs text-neutral-500">
-              {generating ? '正在按这个约定生成，稍等一会儿' : '确认后按这个生成 3 套场景方案'}
-            </p>
-          </div>
-
-          {hasContent ? (
-            <dl className="space-y-2">
-              {FIELDS.map(({ key, label }) => {
-                const value = consensus[key]?.trim()
-                if (!value) return null
-                return (
-                  <div key={key} className="flex gap-2 text-sm">
-                    <dt className="w-20 shrink-0 text-neutral-400">{label}</dt>
-                    <dd className="min-w-0 flex-1 leading-relaxed text-neutral-800">{value}</dd>
-                  </div>
-                )
-              })}
-            </dl>
-          ) : (
-            <p className="text-sm text-neutral-500">没聊出具体约定，将按原始描述生成。</p>
-          )}
-
-          <div className="flex gap-2">
-            <button
-              onClick={onRedoConsensus}
-              disabled={summarizing || generating}
-              className="flex-1 rounded-xl border border-neutral-200 py-3 text-sm text-neutral-600 disabled:opacity-40"
-            >
-              {summarizing ? '整理中…' : '继续聊'}
-            </button>
-            <button
-              onClick={onConfirm}
-              disabled={generating}
-              className="flex-1 rounded-xl bg-neutral-900 py-3 text-sm font-medium text-white disabled:opacity-50"
-            >
-              {generating ? (
-                <span className="inline-flex items-center gap-2">
-                  生成中
-                  <TypingDots className="[&>span]:bg-white/70" />
-                </span>
-              ) : (
-                '就按这个生成'
-              )}
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
+
