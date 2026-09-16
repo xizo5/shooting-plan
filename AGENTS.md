@@ -1,0 +1,83 @@
+# AGENTS.md
+
+拍摄策划 H5「出片助手」：被拍的人用一个自由输入框描述拍摄想法（可附模特图/场景图，「图生图」——机位和动作贴着图生成），AI 一次并行生成 3 套不同风格的完整文字策划供切换对比，参考片由用户看完文字后按需点击生成，可导出长图。与用户全程用中文交流。
+
+## 文档地图
+
+- `CONTEXT.md` — 领域术语表，**定义产品概念的权威来源**。命名新概念、发现术语冲突时，先改这里再写代码。
+- `docs/adr/0001-pure-frontend-user-supplied-keys.md` — 为什么零后端、key 在前端。做付费化、登录、限额之前必读：那意味着推翻此 ADR，需先和用户确认并新立 ADR。
+- `README.md` — 面向人的产品说明，改完对外行为后同步更新。
+
+## 核心流程
+
+一次生成分两阶段，第二阶段并行：
+
+```
+Brief（text + ≤4 张参考图）
+  │
+  ├─ 阶段 1  chatJson(cardsSystem, cardsUserPrompt)          【快】
+  │    ├→ brief.{theme,location,time,people}   由 AI 从文本+图片解析回填
+  │    └→ directions: StyleDirection[]         3 个差异明显的风格方向
+  │
+  ├─ 阶段 2  Promise.allSettled 并行展开每个方向                【慢，总耗时≈单套】
+  │    └→ ShootPlan（含 scenes[] 完整策划）
+  │         · 单个方向失败不影响其他方向，成功几套展示几套
+  │         · 全部失败才报错
+  │
+  ├─ savePlan() 落 localStorage → 展示，顶部胶囊切换 3 套
+  │
+  └─ 参考片按需生成：单张（produceImage）或批量（runBatch，可中断）
+```
+
+**降级路径（贯穿全流程）**：附图请求失败且确有参考图时，**去掉图片重试一次**，并给用户一条 notice 说明「当前模型看不了图」。上层不应把这类失败当致命错误抛出。
+
+## 数据模型
+
+`src/types.ts` 是唯一类型来源，字段语义见 `CONTEXT.md`。
+
+| 类型 | 角色 | 关键点 |
+|---|---|---|
+| `Brief` | 输入 | `text` 与 `referenceImages` 由用户给；`theme/location/time/people` 由阶段 1 的 AI 解析回填，展开前可能为空 |
+| `StyleDirection` | 中间产物 | `id` + `name`（≤4字）+ `tagline`（≤15字），本身不落库 |
+| `ShootPlan` | 最终交付物 | `brief` + `directionName` + `title` + `scenes[]`，是 localStorage 里的存储单位 |
+| `Scene` | 画面分组 | `backup: true` 表示备用场景（雨天/人多/光线不理想）——**每套策划必须有且仅有 1 个** |
+| `Shot` | 最小单位 | `poseTags` 受 `POSE_TAGS` 约束；`image` 存参考片（dataURL 或远程 URL） |
+| `ModelConfig` | 设置 | `imageGen` 为 `null` 表示未开启参考片生成 |
+
+**localStorage 键**（`src/lib/storage.ts`）：
+
+- `sp:config` — 单个 `ModelConfig`
+- `sp:plans` — `ShootPlan[]`，最新的在前
+
+## 开发循环
+
+1. 改代码 → `npm run build`（tsc 严格检查 + vite 构建）必须零错误。
+2. UI 改动用浏览器冒烟：`npm run preview` 起服务，走一遍受影响的页面。**没有真实 key 无法测生成链路**，在 devtools console 注入假策划数据验证展示层：
+
+   ```js
+   // 注入一套最简策划，然后进「我的策划」点开看展示效果
+   localStorage.setItem('sp:plans', JSON.stringify([{
+     id: 'dev-1', createdAt: Date.now(),
+     brief: { text: '测试', referenceImages: [], theme: '日系', location: '西湖', time: '黄昏', people: '情侣两人' },
+     directionName: '日系', title: '测试策划',
+     scenes: [
+       { title: '湖畔', light: '侧逆光', backup: false,
+         shots: [{ description: '两人并肩站在湖边，女生头靠男生肩膀', poseTags: ['双人-并肩坐'], tip: '拍 3 张就够' }] },
+       { title: '雨天备选', light: '柔光', backup: true,
+         shots: [{ description: '撑伞回眸', poseTags: ['单人-回眸'] }] },
+     ],
+   }])))
+   ```
+
+   注：长图导出只收录 `data:` 开头的参考片，远程 URL 会污染 canvas 被跳过——测导出时也要用 dataURL。
+3. 交付前对照 `CONTEXT.md` 的术语检查 UI 文案——界面用词和术语表一致。
+
+## 架构规则
+
+- **零后端（BYOK）**：一切跑在浏览器里，用户的各家 API key 存 localStorage、直连厂商的 OpenAI 兼容接口。新增功能先问「纯前端能不能做」，答不了再谈后端。
+- **CORS 立场**：某厂商浏览器直连被挡时，产品内不解决——引导用户在设置页走「自定义」中转。不为单个厂商加代理或变通代码。
+- **唯一测试接缝**：`src/lib/llm.ts` 的 `chatJson` / `generateImage`。所有依赖模型的行为都经这两个函数；未来写测试只 mock 这条缝，UI 与纯函数直接测。
+- **标签词汇表耦合**：`src/lib/poses.ts` 的 `POSE_TAGS` 是 prompt（`src/lib/prompts.ts`）里声明给模型的可选集合。改一边必须同步另一边，否则画面对不上插画。当前 15 个标签：单人 7（站/走/坐/跳/背影/回眸/蹲）、双人 8。
+- **localStorage 防御**：参考片等图片进存储前先压缩（现例：768px 参考图、480px 参考片）；`savePlan` 已有超容量逐级丢弃逻辑（30→20→10→5→2→1），新增大体积数据沿用该模式。
+- **生图默认豆包**：参考片默认走火山方舟豆包 Seedream（用户只填 Key），参考图 base64 直传做图生图、响应要 b64_json。生图预设改动集中在 `IMAGE_GEN_PRESETS`（`src/lib/llm.ts`）。
+- **key 卫生**：仓库与文档不出现真实 key；测试注入一律假值。
