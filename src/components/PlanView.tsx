@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react'
 import type { ShootPlan } from '../types'
 import { pickPose } from '../lib/poses'
 import { exportPlanImage } from '../lib/share'
@@ -32,6 +33,40 @@ export default function PlanView({
   const dual = /双|情|2|两/.test(plan.brief.people ?? plan.brief.text)
   const busy = batch?.running || shotBusy !== null
 
+  /** 导出长图：要逐张加载参考片，图多时不是瞬间完成，得给个进行态 */
+  const [saving, setSaving] = useState(false)
+  const [saveNote, setSaveNote] = useState<{ kind: 'ok' | 'warn' | 'err'; text: string } | null>(null)
+  // 和生成一样，state 挡不住同批连点，用 ref 互斥
+  const savingRef = useRef(false)
+
+  const saveLongImage = async () => {
+    if (savingRef.current) return
+    savingRef.current = true
+    setSaving(true)
+    setSaveNote(null)
+    try {
+      const { photos, skipped } = await exportPlanImage(plan)
+      if (skipped > 0) {
+        setSaveNote({
+          kind: 'warn',
+          text: `长图已保存，含 ${photos} 张参考片；有 ${skipped} 张因跨域限制没能放进去，已用姿势插画代替`,
+        })
+      } else if (photos > 0) {
+        setSaveNote({ kind: 'ok', text: `长图已保存，含 ${photos} 张参考片` })
+      } else {
+        setSaveNote({ kind: 'ok', text: '长图已保存（本次没有参考片，用的是姿势插画）' })
+      }
+    } catch (err) {
+      setSaveNote({
+        kind: 'err',
+        text: err instanceof Error ? err.message : '长图导出失败，请重试',
+      })
+    } finally {
+      savingRef.current = false
+      setSaving(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-3">
@@ -44,12 +79,27 @@ export default function PlanView({
           </p>
         </div>
         <button
-          onClick={() => exportPlanImage(plan)}
-          className="shrink-0 rounded-xl bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white"
+          onClick={saveLongImage}
+          disabled={saving}
+          className="shrink-0 rounded-xl bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50"
         >
-          存长图
+          {saving ? '导出中…' : '存长图'}
         </button>
       </div>
+
+      {saveNote && (
+        <p
+          className={`rounded-xl px-4 py-3 text-sm leading-relaxed ${
+            saveNote.kind === 'ok'
+              ? 'bg-emerald-50 text-emerald-800'
+              : saveNote.kind === 'warn'
+                ? 'bg-amber-50 text-amber-700'
+                : 'bg-red-50 text-red-700'
+          }`}
+        >
+          {saveNote.text}
+        </p>
+      )}
 
       {canGen ? (
         <div className="space-y-2">

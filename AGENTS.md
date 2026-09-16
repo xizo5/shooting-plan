@@ -69,10 +69,13 @@ step 3  出方案（view: generating → plan）
 
 **生成防抖**：`generateAll` 用 `generating`（**ref，不是 state**）做互斥锁。state 更新是异步的，狂点按钮时下一次点击可能在重渲染前就进来了，只有 ref 挡得住。**生成中跳走后就没人管 state 了，所以互斥判断必须用 ref 而不能指望 `stage` / `view`** —— `Confirm` 的 `onConfirm` 就是这么挡的。生成成功后在策划页顶部给一条绿色 toast（几套成功 + 已存到哪），因为页面直接跳走了，没反馈用户会以为没点上。
 
-**测试接缝**：两处。
+**测试接缝**：三处。
 
 1. `src/lib/llm.ts` 末尾导出 `__test = { readStream }`。`npm run test:sse`（`scripts/test-sse.mjs`）用 esbuild 编译该文件后喂各种分块方式验证 SSE 解析：逐字节、CRLF、坏 JSON、`[DONE]`、非标准 `message.content`、不支持流式的降级。改 `readStream` 后跑一遍。**别改成用正则剥 TS 类型**——试过，会崩。
-2. `src/components/Steps.tsx` 的 `stepOf()` 是纯映射（不碰 hooks），`npm run test:steps`（`scripts/test-steps.mjs`）同样用 esbuild 编译后直接 import 断言六种 view 的落点。加页面、改步骤归属后跑。**`'generating'` 必须落到第 3 步** —— 这是回归风险最高的一条。`npm test` 一次跑全两份。
+2. `src/components/Steps.tsx` 的 `stepOf()` 是纯映射（不碰 hooks），`npm run test:steps`（`scripts/test-steps.mjs`）同样用 esbuild 编译后直接 import 断言六种 view 的落点。加页面、改步骤归属后跑。**`'generating'` 必须落到第 3 步** —— 这是回归风险最高的一条。
+3. `src/lib/storage.ts` 的 `configFromEnv()` 用 `npm run test:config`（`scripts/test-config.mjs`）验证 `.env` → `ModelConfig` 的映射。做法是把 `import.meta.env` 用 esbuild `define` 指向 `globalThis.__ENV__`，**编译一次就能改环境跑多个用例**（每次重 build 太慢）。重点盯 `responseFormat`（漏过，见架构规则）。
+
+`npm test` 一次跑全三份。
 
 **降级路径（贯穿全流程）**：附图请求失败且确有参考图时，**去掉图片重试一次**，并给用户一条 notice 说明「当前模型看不了图」。上层不应把这类失败当致命错误抛出。讨论环节同样适用（开场与每轮回复都要兜，见 `streamReply`）。
 
@@ -129,7 +132,7 @@ step 3  出方案（view: generating → plan）
 ## 开发循环
 
 1. 改代码 → `npm run build`（tsc 严格检查 + vite 构建）必须零错误。
-2. 跑了测试才敢交：`npm test`（含 `test:sse` 与 `test:steps`）必须全绿。动了 `src/lib/llm.ts` 的流式解析必跑 `test:sse`；动了步骤条或 `View` 映射必跑 `test:steps`。
+2. 跑了测试才敢交：`npm test`（含 `test:sse` / `test:steps` / `test:config`）必须全绿。动了 `src/lib/llm.ts` 的流式解析必跑 `test:sse`；动了步骤条或 `View` 映射必跑 `test:steps`；动了 `.env` → 配置的映射必跑 `test:config`。
 3. UI 改动用浏览器冒烟：`npm run preview` 起服务，走一遍受影响的页面。**没有真实 key 无法测生成链路**，在 devtools console 注入假策划数据验证展示层：
 
    ```js
@@ -147,7 +150,7 @@ step 3  出方案（view: generating → plan）
    }])))
    ```
 
-   注：长图导出只收录 `data:` 开头的参考片，远程 URL 会污染 canvas 被跳过——测导出时也要用 dataURL。
+   注：测长图导出时参考片用 `data:` URL（`image: 'data:image/png;base64,...'`）。远程 URL 现在也会尽力收录（加 `crossOrigin` 试读），但读不到就退回插画——见架构规则的「canvas 的跨域纪律」。
 4. 交付前对照 `CONTEXT.md` 的术语检查 UI 文案——界面用词和术语表一致。
 5. 提交前 `git status` 必须干净且**不含 `.env` / `dist/`**。若为验证环境变量注入临时建过 `.env`，验证完立刻删除。
 
@@ -168,4 +171,6 @@ step 3  出方案（view: generating → plan）
 - **标签词汇表耦合**：`src/lib/poses.ts` 的 `POSE_TAGS` 是 prompt（`src/lib/prompts.ts`）里声明给模型的可选集合。改一边必须同步另一边，否则画面对不上插画。当前 15 个标签：单人 7（站/走/坐/跳/背影/回眸/蹲）、双人 8。
 - **localStorage 防御**：参考片等图片进存储前先压缩（现例：768px 参考图、480px 参考片）；`savePlan` 已有超容量逐级丢弃逻辑（30→20→10→5→2→1），新增大体积数据沿用该模式。
 - **生图默认豆包**：参考片默认走火山方舟豆包 Seedream（用户只填 Key），参考图 base64 直传做图生图、响应要 b64_json。生图预设改动集中在 `IMAGE_GEN_PRESETS`（`src/lib/llm.ts`）。
+- **参考片必须以 base64 回到前端**（`responseFormat: 'b64_json'`）。理由：厂商默认回**远程 URL**，而远程图会**污染 canvas** —— 页面上显示正常，一导出长图 `toBlob` 就抛 SecurityError，或者拉取被 CORS 拦住。统一由 `imageResponseFormatFor(baseURL, model)`（`src/lib/llm.ts`）按厂商判定，`.env` 路径（`configFromEnv`）必须调它。**这里是漏过一次的地方**：设置页当年为豆包写死了 `b64_json`，`.env` 路径没写 → 长长的图里只有简笔画，而类型检查查不出来（字段本来可选）。`npm run test:config` 钉住这条。
+- **canvas 的跨域纪律**：任何要画进 canvas 的图，非 `data:` 的一律先 `img.crossOrigin = 'anonymous'`（**必须在赋 `src` 之前设**），加载失败就**放弃这张图**、退回姿势插画，绝不能硬画。`exportPlanImage` 里 `loadDrawable()` 就是这个守门人；它返回的 `ExportResult`（photos / skipped）要透给用户，别静默少图。
 - **key 卫生**：仓库与文档**只出现假值**（如 `.env.example` 里的 `sk-在这里填你的Key`）；真实 key 只活在本地 `.env`（已被 `.gitignore` 忽略）与用户浏览器里。测试注入一律假值，测完立即删除 `.env` 并清掉 `dist/`。

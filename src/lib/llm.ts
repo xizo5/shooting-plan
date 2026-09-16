@@ -83,6 +83,24 @@ export const IMAGE_GEN_PRESETS: ProviderPreset[] = [
 /** 智谱 GLM-Image 的出图尺寸（竖版人像参考片）；豆包不传 size 由模型自适应 */
 export const ZHIPU_IMAGE_SIZE = '1056x1568'
 
+/**
+ * 判断某个生图厂商该不该索要 `b64_json`。
+ *
+ * 为什么要这样判断：默认（不传 `response_format`）厂商返回的是**远程 URL**。
+ * 远程 URL 在浏览器里显示没问题，但**画进 canvas 会污染画布**，
+ * 长图导出会直接抛 SecurityError；而且拉取还常被 CORS 拦。
+ * 豆包支持 `response_format: 'b64_json'`，直接要 base64 就绕开了整条链路。
+ *
+ * 认厂商而不是写死一个开关：`.env` 只有 baseURL/model，没有厂商 id。
+ */
+export function imageResponseFormatFor(
+  baseURL: string,
+  model: string,
+): 'b64_json' | undefined {
+  if (/volces\.com/.test(baseURL) || /^doubao-/i.test(model)) return 'b64_json'
+  return undefined
+}
+
 /** 豆包模型列表拉取失败时的内置回退清单 */
 export const DOUBAO_FALLBACK_MODELS = [
   'doubao-seedream-4-0-250828',

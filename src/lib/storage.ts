@@ -1,4 +1,5 @@
 import type { ModelConfig, ImageGenConfig, ShootPlan } from '../types'
+import { imageResponseFormatFor } from './llm'
 
 const CONFIG_KEY = 'sp:config'
 const PLANS_KEY = 'sp:plans'
@@ -12,13 +13,17 @@ function configFromEnv(): ModelConfig | null {
   const model = import.meta.env.VITE_MODEL?.trim()
   if (!apiKey || !model) return null
 
+  const imgBaseURL = import.meta.env.VITE_IMAGE_BASE_URL?.trim() ?? ''
+  const imgModel = import.meta.env.VITE_IMAGE_MODEL?.trim() ?? ''
   const imageGen: ImageGenConfig | null =
-    import.meta.env.VITE_IMAGE_API_KEY?.trim() && import.meta.env.VITE_IMAGE_MODEL?.trim()
+    import.meta.env.VITE_IMAGE_API_KEY?.trim() && imgModel
       ? {
-          baseURL: import.meta.env.VITE_IMAGE_BASE_URL?.trim() ?? '',
+          baseURL: imgBaseURL,
           apiKey: import.meta.env.VITE_IMAGE_API_KEY.trim(),
-          model: import.meta.env.VITE_IMAGE_MODEL.trim(),
+          model: imgModel,
           size: import.meta.env.VITE_IMAGE_SIZE?.trim() || undefined,
+          // 豆包要 base64：不然后端回远程 URL，画不进 canvas，长图里就没有参考片
+          responseFormat: imageResponseFormatFor(imgBaseURL, imgModel),
         }
       : null
 

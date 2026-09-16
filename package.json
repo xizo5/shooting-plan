@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test:sse": "node scripts/test-sse.mjs",
     "test:steps": "node scripts/test-steps.mjs",
-    "test": "npm run test:sse && npm run test:steps"
+    "test:config": "node scripts/test-config.mjs",
+    "test": "npm run test:sse && npm run test:steps && npm run test:config"
   },
   "dependencies": {
     "react": "^18.3.1",

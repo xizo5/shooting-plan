@@ -19,9 +19,10 @@ cp .env.example .env     # 然后编辑 .env，填入自己的 API Key
 npm run dev              # 本地开发，浏览器打开提示的地址
 npm run build            # 构建纯静态产物到 dist/
 npm run preview          # 预览构建产物
-npm run test             # 跑全部自测（SSE 流式解析 + 三步映射）
+npm run test             # 跑全部自测（SSE 解析 + 三步映射 + .env 配置映射）
 npm run test:sse         # 只验流式解析（改了 src/lib/llm.ts 的流式逻辑后跑）
 npm run test:steps       # 只验 View→Step 映射（改步骤条或加页面后跑）
+npm run test:config      # 只验 .env → 配置的映射（改 storage.ts 或加环境变量后跑）
 ```
 
 `.env` 里至少填 `VITE_API_KEY` 和 `VITE_MODEL`，可参考 `.env.example` 里列的常见厂商接口地址：
@@ -63,7 +64,8 @@ npm run test:steps       # 只验 View→Step 映射（改步骤条或加页面�
 - **生成按钮防重复点击**：生成是同步 ref 锁，不是只看 `disabled` 状态——React state 更新是异步的，同一批点击里 `disabled` 挡不住第二次。点击后按钮立刻切换成带可爱 SVG 动画的进行态，完成/失败都给 toast 反馈
 - **一屏一滚动条**：讨论页头尾固定、只有中间对话区滚动（`min-h-0 flex-1 overflow-y-auto`）。`flex` 子项默认 `min-height: auto`，不加 `min-h-0` 会被内容撑破父级；自动滚底用 `scrollTop = scrollHeight`，别用 `scrollIntoView`（它会把所有可滚动祖先一起滚）
 - **图生图**：参考图（模特图/场景图）随请求直接发给所用模型；展开策划时机位写成场景图里的真实站位、动作贴合模特图的气质。模型不支持看图时自动去图重试并提示
-- **姿势插画 + 参考片混合**：内置简笔画姿势库（`src/lib/poses.ts`）永远兜底、零成本；AI 写实参考片是可选增强——默认豆包 Seedream，参考图以 base64 直传做图生图，生成结果请求 b64_json 返回，存 localStorage 前压缩到 480px
+- **姿势插画 + 参考片混合**：内置简笔画姿势库（`src/lib/poses.ts`）永远兜底、零成本；AI 写实参考片是可选增强——默认豆包 Seedream，参考图以 base64 直传做图生图，生成结果**索要 b64_json**（拿到 base64 才画得进导出长图，远程 URL 会污染 canvas），存 localStorage 前压缩到 480px
+- **存长图带参考片**：导出的竖版长图会把生成好的参考片一起排进每个画面；导出结束会告诉你放进了几张。万一某张图厂商只给了跨域受限的远程地址，读不到像素就只能退回姿势插画，这种情况会明确提示，不会静默少图
 
 ## 领域术语
 
