@@ -3,6 +3,13 @@ node_modules
 dist
 dist-ssr
 
+# 包管理器：本项目统一用 npm，禁止混入其他锁文件
+# （2026-09-16：曾被工具自动改造成 pnpm 项目，两次安装的依赖树不一致，
+#   导致 IDE 依赖检查报 ERR_PNPM_IGNORED_BUILDS 且极难排查）
+pnpm-lock.yaml
+pnpm-workspace.yaml
+yarn.lock
+
 # 环境与本地覆盖（可能含真实 API Key，绝不入库）
 .env
 .env.*

@@ -65,6 +65,17 @@ Brief（text + ≤4 张参考图）
 
 ⚠️ **`VITE_*` 会被明文编译进 `dist/` 产物**——这是 Vite 的既定行为，不是 bug。对自己 clone 自己跑的场景可接受（填的是自己的 key），但**带 key 的 `dist/` 不得部署到公开地址**。若将来要提供在线服务，必须改为后端代管 key（即取代 ADR-0001），不能靠 `.env` 硬撑。
 
+## 包管理器：只用 npm
+
+**本项目统一用 npm**，锁文件是 `package-lock.json`。**不要引入 pnpm / yarn**。
+
+2026-09-16 踩过的坑：某工具把项目自动改造成 pnpm 项目，生成了 `pnpm-lock.yaml` 与 `pnpm-workspace.yaml`，随后 IDE 的依赖状态检查报 `ERR_PNPM_IGNORED_BUILDS: Ignored build scripts: esbuild@0.21.5` → 项目起不来。
+
+- 直接原因：`pnpm-workspace.yaml` 里 `allowBuilds: esbuild` 的值是模板占位文字 `set this to true or false`，pnpm 解析不了就退出。pnpm 自 v10 起默认不执行依赖的 postinstall（防供应链投毒），esbuild 靠 postinstall 装原生二进制，被拦下时 vite 就跑不起来。
+- 根本原因：**两套包管理器的锁文件并存，依赖树不一致**。这类问题极难排查。
+- 处理：删掉 pnpm 的两个文件，回到 npm；三个非 npm 锁文件已加进 `.gitignore` 防复现。
+- 若将来真要在 pnpm 下工作：`allowBuilds` 必须显式写 `true`/`false`，不能留占位文字。
+
 ## 开发循环
 
 1. 改代码 → `npm run build`（tsc 严格检查 + vite 构建）必须零错误。
