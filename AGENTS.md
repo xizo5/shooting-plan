@@ -1,6 +1,6 @@
 # AGENTS.md
 
-拍摄策划 H5「出片助手」：被拍的人用一个自由输入框描述拍摄想法（可附模特图/场景图，「图生图」——机位和动作贴着图生成），AI 一次并行生成 3 套不同风格的完整文字策划供切换对比，参考片由用户看完文字后按需点击生成，可导出长图。与用户全程用中文交流。
+拍摄策划 H5「出片助手」：被拍的人用一个自由输入框描述拍摄想法（可附模特图/场景图，「图生图」——机位和动作贴着图生成），先和 AI 聊清风格、服装、道具、动作并归纳成「拍摄约定」，确认后 AI 并行生成 3 套同一调性、不同场景的完整文字策划供切换对比，参考片由用户看完文字后按需点击生成，可导出长图。与用户全程用中文交流。
 
 **目标用户是开发者，不是普通消费者**：使用者自行 clone 仓库、配 `.env`、本地跑起来。因此可以要求 Node 环境与构建步骤，但**仍无后端**。不要按「降低小白使用门槛」的思路做设计决策（如内置试用额度、托管 Key）。
 
@@ -9,22 +9,28 @@
 - `CONTEXT.md` — 领域术语表，**定义产品概念的权威来源**。命名新概念、发现术语冲突时，先改这里再写代码。
 - `docs/adr/0001-pure-frontend-user-supplied-keys.md` — 为什么零后端、key 在前端。做付费化、登录、限额之前必读：那意味着推翻此 ADR，需先和用户确认并新立 ADR。
 - `README.md` — 面向人的产品说明，改完对外行为后同步更新。
-- `.env.example` — 环境变量模板，与设置页是**两层配置**（见下）。
+- `.env.example` — 环境变量模板，**当前唯一的配置来源**（设置页已隐藏，见下）。
 
 ## 核心流程
 
-一次生成分两阶段，第二阶段并行：
+**先进讨论、再出策划**：填完 Brief 不直接生成，先开一轮对话把风格谈拢，谈拢了才烧钱生成。生成分两阶段，第二阶段并行：
 
 ```
 Brief（text + ≤4 张参考图）
   │
-  ├─ 阶段 1  chatJson(cardsSystem, cardsUserPrompt)          【快】
-  │    ├→ brief.{theme,location,time,people}   由 AI 从文本+图片解析回填
-  │    └→ directions: StyleDirection[]         3 个差异明显的风格方向
+  ├─ 阶段 0  讨论环节 chatText(discussSystem)                  【多轮】
+  │    ├→ 开场：discussOpeningPrompt(text, hasImages) 抛出 2-3 个关键问题
+  │    ├→ 多轮：每轮 history = 本轮之前的全部对话，新消息作为 user 追加
+  │    └→ 用户点「整理成拍摄约定」→ chatText(consensusPrompt) + extractJson
+  │         └→ consensus: Consensus | null（null = 没谈拢，可「继续聊」）
   │
-  ├─ 阶段 2  Promise.allSettled 并行展开每个方向                【慢，总耗时≈单套】
+  ├─ 阶段 1  chatJson(cardsSystem, cardsUserPrompt(text, hasImages, consensus))   【快】
+  │    ├→ brief.{theme,location,time,people}   由 AI 从文本+图片解析回填
+  │    └→ directions: StyleDirection[]         **同一调性下的 3 个场景变体**（不是 3 个风格）
+  │
+  ├─ 阶段 2  Promise.allSettled 并行展开每个变体                  【慢，总耗时≈单套】
   │    └→ ShootPlan（含 scenes[] 完整策划）
-  │         · 单个方向失败不影响其他方向，成功几套展示几套
+  │         · 单个变体失败不影响其他，成功几套展示几套
   │         · 全部失败才报错
   │
   ├─ savePlan() 落 localStorage → 展示，顶部胶囊切换 3 套
@@ -32,7 +38,11 @@ Brief（text + ≤4 张参考图）
   └─ 参考片按需生成：单张（produceImage）或批量（runBatch，可中断）
 ```
 
-**降级路径（贯穿全流程）**：附图请求失败且确有参考图时，**去掉图片重试一次**，并给用户一条 notice 说明「当前模型看不了图」。上层不应把这类失败当致命错误抛出。
+**共识必须钉进 prompt**：`consensus` 经 `formatConsensus()`（`prompts.ts`）注入阶段 1 与阶段 2 两处。少注入一处，风格就会在展开时跑偏——这是本环节唯一容易漏的地方。风格锁定后，「3 套」的差异只能来自场景，prompt 里已明确禁止换风格。
+
+**多轮对话的传参约定**：`chatText(config, system, user, { history, images })` 中 `history` 是**本条之前的对话**，`user` 是**本条新消息**，函数会把 user 追加到 history 之后。**别把新消息也塞进 history**，否则同一条发两遍（踩过）。`images` 只挂在最后一条 user 上——多个厂商拒绝多消息带图，同时也省 token。
+
+**降级路径（贯穿全流程）**：附图请求失败且确有参考图时，**去掉图片重试一次**，并给用户一条 notice 说明「当前模型看不了图」。上层不应把这类失败当致命错误抛出。讨论环节同样适用（开场与每轮回复都要兜）。
 
 ## 数据模型
 
@@ -41,7 +51,9 @@ Brief（text + ≤4 张参考图）
 | 类型 | 角色 | 关键点 |
 |---|---|---|
 | `Brief` | 输入 | `text` 与 `referenceImages` 由用户给；`theme/location/time/people` 由阶段 1 的 AI 解析回填，展开前可能为空 |
-| `StyleDirection` | 中间产物 | `id` + `name`（≤4字）+ `tagline`（≤15字），本身不落库 |
+| `ChatMessage` | 中间产物 | `role: 'user' \| 'assistant'` + `content`，讨论环节的一轮，**不落库**（刷新即丢，可接受） |
+| `Consensus` | 中间产物 | 讨论归纳出的 5 个字段（风格调性/服装/道具/动作与情绪/其他），全字符串、允许为空。`null` 表示还没谈拢 |
+| `StyleDirection` | 中间产物 | `id` + `name`（≤4字）+ `tagline`（≤15字），本身不落库。**语义已收敛**：约定锁定风格后，3 个 direction 是同一调性下的场景变体 |
 | `ShootPlan` | 最终交付物 | `brief` + `directionName` + `title` + `scenes[]`，是 localStorage 里的存储单位 |
 | `Scene` | 画面分组 | `backup: true` 表示备用场景（雨天/人多/光线不理想）——**每套策划必须有且仅有 1 个** |
 | `Shot` | 最小单位 | `poseTags` 受 `POSE_TAGS` 约束；`image` 存参考片（dataURL 或远程 URL） |
@@ -108,8 +120,8 @@ Brief（text + ≤4 张参考图）
 ## 架构规则
 
 - **零后端（BYOK）**：一切跑在浏览器里，用户的各家 API key 存 localStorage（或由 `.env` 提供默认值）、直连厂商的 OpenAI 兼容接口。新增功能先问「纯前端能不能做」，答不了再谈后端。
-- **CORS 立场**：某厂商浏览器直连被挡时，产品内不解决——引导用户在设置页走「自定义」中转。不为单个厂商加代理或变通代码。
-- **唯一测试接缝**：`src/lib/llm.ts` 的 `chatJson` / `generateImage`。所有依赖模型的行为都经这两个函数；未来写测试只 mock 这条缝，UI 与纯函数直接测。
+- **CORS 立场**：某厂商浏览器直连被挡时，产品内不解决——引导用户改用「自定义」中转（写进 `.env` 的 `VITE_*_BASE_URL`）。不为单个厂商加代理或变通代码。
+- **唯一测试接缝**：`src/lib/llm.ts` 的 `chatJson` / `chatText` / `generateImage`。所有依赖模型的行为都经这几个函数；未来写测试只 mock 这条缝，UI 与纯函数直接测。
 - **标签词汇表耦合**：`src/lib/poses.ts` 的 `POSE_TAGS` 是 prompt（`src/lib/prompts.ts`）里声明给模型的可选集合。改一边必须同步另一边，否则画面对不上插画。当前 15 个标签：单人 7（站/走/坐/跳/背影/回眸/蹲）、双人 8。
 - **localStorage 防御**：参考片等图片进存储前先压缩（现例：768px 参考图、480px 参考片）；`savePlan` 已有超容量逐级丢弃逻辑（30→20→10→5→2→1），新增大体积数据沿用该模式。
 - **生图默认豆包**：参考片默认走火山方舟豆包 Seedream（用户只填 Key），参考图 base64 直传做图生图、响应要 b64_json。生图预设改动集中在 `IMAGE_GEN_PRESETS`（`src/lib/llm.ts`）。
