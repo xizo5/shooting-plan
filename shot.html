@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>出片助手 · 截图入口</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!--
+      截图专用入口（临时文件，截完即删）。
+      必须放在项目根目录：public/ 下的 HTML 不走 vite 的 transformIndexHtml，
+      @vitejs/plugin-react 的 React Refresh preamble 注入不进去，应用会直接挂掉。
+
+      驱动要在应用之前挂上，它得先接管 fetch。
+    -->
+    <!-- 演示参考片（base64）要在驱动之前加载：驱动顶层就会读它 -->
+    <script src="/shot-refs.js"></script>
+    <script src="/shot-driver.js"></script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

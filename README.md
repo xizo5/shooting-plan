@@ -42,6 +42,8 @@ npm run test:config      # 只验 .env → 配置的映射（改 storage.ts 或�
 
 `site/` 是项目介绍页，纯静态单文件、无构建、无依赖，发布在 <https://xizo5.github.io/shooting-plan/>。
 
+`site/shots/` 里的界面截图不是画的——是用仓库里的 `shot.html` + `public/shot-driver.js` 让应用真跑一遍流程截下来的（做法与踩过的坑见 `AGENTS.md` 的「官网截图怎么来的」）。
+
 改了 `site/` 之后，跑这一条推上去（约 1 分钟后 Pages 构建完成）：
 
 ```bash

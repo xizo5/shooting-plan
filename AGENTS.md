@@ -154,6 +154,41 @@ step 3  出方案（view: generating → plan）
 4. 交付前对照 `CONTEXT.md` 的术语检查 UI 文案——界面用词和术语表一致。
 5. 提交前 `git status` 必须干净且**不含 `.env` / `dist/`**。若为验证环境变量注入临时建过 `.env`，验证完立刻删除。
 
+## 官网截图怎么来的
+
+`site/shots/` 里那几张界面图**不是画的，是让应用真跑一遍截下来的**。工具就在仓库里：
+
+| 文件 | 作用 |
+| --- | --- |
+| `shot.html` | 截图专用入口（在**项目根目录**，原因见下方坑 1） |
+| `public/shot-driver.js` | 驱动脚本：拦 `window.fetch` 按请求特征喂假响应，再模拟点击把流程走完 |
+| `public/shot-refs.js` | 演示参考片（base64，已 gitignore）。**没有它，方案页就只有简笔画** |
+
+用 `?shot=N` 选剧本：`1` 填想法 · `2` 讨论 · `3` 约定 · `4` 生成中 · `5` 方案。
+
+跑法（**dev server 必须和截图在同一条命令里启停**，否则服务会被杀掉）：
+
+```bash
+node ./node_modules/vite/bin/vite.js --port 4190 --strictPort --host 127.0.0.1 &
+sleep 5
+chrome --headless --disable-gpu --no-sandbox --hide-scrollbars \
+  --virtual-time-budget=45000 --window-size=520,940 \
+  --screenshot=tmp/raw/step1-brief.png "http://127.0.0.1:4190/shot.html?shot=1"
+kill %1
+```
+
+窗口宽给 **520**：应用是 `max-w-md`(448) 居中，两侧各 36px 留白，截完裁掉即可。
+高度按内容给 —— `discuss` / `generating` 是 `h-dvh` 锁定的整屏，其余页看内容长度。
+
+**四个坑（都真踩过）：**
+
+1. **截图入口不能放 `public/`**。`public/` 下的 HTML 不走 vite 的 `transformIndexHtml`，`@vitejs/plugin-react` 的 React Refresh preamble 注入不进去，应用直接白屏（早期版本用 headless 截图时被这条卡了一轮）。
+2. **`fetch` 拦截里别拿「拍摄约定」当特征词**。`cardsUserPrompt` 和 `expandUserPrompt` 都会嵌入共识，那段文字里带着「拍摄约定」——用它判断会把「出 3 个场景方向」的请求误判成「归纳约定」，于是 `directions` 为空、页面报「模型没有给出有效的场景方案」。要用各自提示词独有的句子区分。
+3. **`--virtual-time-budget` 下别用定时器轮询**。虚拟时钟会把 `setTimeout` 快进，轮询几百次是一瞬间的事，而图片解码、canvas 压缩这些真实异步操作根本还没做完。改用 `MutationObserver` 等 DOM 变化。
+4. **等待动画那屏要给矮窗口**（520×720）。它是 `h-dvh` 撑满 + 动画居中，窗口给太高的话缩略图里几乎是一片白。
+
+**演示参考片**是外部生成的素材（西湖情侣日系人像），压到 480px 宽后 base64 注入 `shot-refs.js`，右下角原本带出图工具水印，已用高斯模糊糊掉。
+
 ## 架构规则
 
 - **零后端（BYOK）**：一切跑在浏览器里，用户的各家 API key 存 localStorage（或由 `.env` 提供默认值）、直连厂商的 OpenAI 兼容接口。新增功能先问「纯前端能不能做」，答不了再谈后端。
