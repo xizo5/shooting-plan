@@ -38,6 +38,20 @@ npm run test:config      # 只验 .env → 配置的映射（改 storage.ts 或�
 
 `.env` 已被 `.gitignore` 忽略，不会进仓库。
 
+## 发布介绍页
+
+`site/` 是项目介绍页，纯静态单文件、无构建、无依赖，发布在 <https://xizo5.github.io/shooting-plan/>。
+
+改了 `site/` 之后，跑这一条推上去（约 1 分钟后 Pages 构建完成）：
+
+```bash
+git subtree push --prefix=site origin gh-pages
+```
+
+**为什么不用 GitHub Actions**：推送 `.github/workflows/` 下的文件要求 PAT 具备 `workflow` scope，只有 `repo` scope 会被 GitHub 直接拒绝。用 `gh-pages` 分支发布就不需要了。
+
+**为什么只发布 `site/` 而不发布应用**：见下面「配置方式」里的警示——`VITE_*` 会明文编进产物。
+
 ## 配置方式
 
 **模型配置全部通过 `.env` 完成，应用内没有设置页。**
