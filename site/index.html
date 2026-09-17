@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>出片助手 · AI 拍摄策划</title>
+<meta name="description" content="纯前端的 AI 拍摄策划工具。先把拍摄想法和 AI 聊拢，定成一份拍摄约定，再一次生成 3 套同调性、不同场景的完整策划，存成长图带去现场照着拍。零后端，Key 在你自己手里。" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="出片助手 · AI 拍摄策划" />
+<meta property="og:description" content="先把话聊清楚，再按快门。零后端，自己 clone 自己跑。" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23141618'/><circle cx='16' cy='16' r='5' fill='%23E0453E'/></svg>" />
+<style>
+  :root{
+    --void:#141618;
+    --void-2:#1D2023;
+    --film:#F2F3F1;
+    --card:#FFFFFF;
+    --ink:#141618;
+    --mute:#6F7579;
+    --line:#D6D9D5;
+    --mark:#E0453E;
+    --wire:#3A3F43;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --wrap: 1080px;
+  }
+
+  *,*::before,*::after{ box-sizing:border-box; }
+  html{ scroll-behavior:smooth; -webkit-text-size-adjust:100%; }
+  body{
+    margin:0;
+    background:var(--film);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:16px;
+    line-height:1.75;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{ color:inherit; }
+  :focus-visible{ outline:2px solid var(--mark); outline-offset:2px; border-radius:2px; }
+
+  .wrap{ width:100%; max-width:var(--wrap); margin-inline:auto; padding-inline:24px; }
+  .mono{ font-family:var(--mono); }
+
+  /* ── 取景器 Hero ───────────────────────────── */
+  .vf{ background:var(--void); color:#EDEFEE; padding:32px 0 clamp(64px,9vw,104px); }
+  .vf-top{
+    display:flex; align-items:center; justify-content:space-between; gap:16px;
+    font-family:var(--mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase;
+    color:#8A9196; padding-bottom:32px;
+  }
+  .vf-top b{ color:#EDEFEE; font-weight:600; letter-spacing:.1em; }
+
+  /* 取景框：四角对位括号，红色是页面上唯一的高饱和色 */
+  .frame{ position:relative; padding:clamp(28px,5vw,64px) clamp(20px,4vw,56px); }
+  .cf{ position:absolute; width:26px; height:26px; border:2px solid var(--mark); }
+  .cf.tl{ top:0; left:0; border-right:0; border-bottom:0; }
+  .cf.tr{ top:0; right:0; border-left:0; border-bottom:0; }
+  .cf.bl{ bottom:0; left:0; border-right:0; border-top:0; }
+  .cf.br{ bottom:0; right:0; border-left:0; border-top:0; }
+
+  h1{
+    margin:0;
+    font-size:clamp(32px,7.4vw,66px);
+    line-height:1.12;
+    letter-spacing:-.02em;
+    font-weight:800;
+    max-width:15em;
+    animation:focus-in 1.15s cubic-bezier(.2,.72,.2,1) both;
+  }
+  @keyframes focus-in{
+    from{ filter:blur(16px); opacity:0; letter-spacing:.05em; }
+    to  { filter:blur(0);    opacity:1; letter-spacing:-.02em; }
+  }
+  .vf-lead{
+    margin:24px 0 0; max-width:34em;
+    font-size:clamp(15px,1.7vw,17px);
+    line-height:1.85; color:#A8AFB4;
+    animation:focus-in 1.05s cubic-bezier(.2,.72,.2,1) .34s both;
+  }
+  .vf-lead strong{ color:#EDEFEE; font-weight:600; }
+
+  .spec{
+    display:flex; flex-wrap:wrap; gap:8px 20px;
+    margin-top:32px; padding-top:20px; border-top:1px solid var(--wire);
+    font-family:var(--mono); font-size:11.5px; letter-spacing:.08em; color:#868D92;
+  }
+  .spec span::before{ content:"·"; margin-right:8px; color:var(--mark); }
+  .spec span:first-child::before{ content:""; margin:0; }
+
+  .acts{ display:flex; flex-wrap:wrap; gap:12px; margin-top:32px; }
+  .btn{
+    display:inline-flex; align-items:center; gap:10px;
+    padding:13px 22px; border-radius:999px;
+    font-size:14.5px; font-weight:600; text-decoration:none; line-height:1;
+    border:1px solid transparent; transition:transform .12s ease, background .15s ease, border-color .15s ease;
+  }
+  .btn:active{ transform:translateY(1px); }
+  .btn-p{ background:#EDEFEE; color:var(--void); }
+  .btn-p:hover{ background:#fff; }
+  .btn-s{ border-color:var(--wire); color:#C6CCD0; }
+  .btn-s:hover{ border-color:#6E767C; color:#EDEFEE; }
+
+  /* ── 构图线：贯穿页面的分隔，两端带刻度 ───────── */
+  .rule{ position:relative; height:1px; background:var(--line); }
+  .rule::before,.rule::after{
+    content:""; position:absolute; top:-4px; width:1px; height:9px; background:var(--line);
+  }
+  .rule::before{ left:0; }
+  .rule::after{ right:0; }
+  .rule.on-void{ background:var(--wire); }
+  .rule.on-void::before,.rule.on-void::after{ background:var(--wire); }
+
+  section{ padding-block:clamp(56px,9vw,104px); }
+  .eyebrow{
+    font-family:var(--mono); font-size:11px; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--mark); margin:0 0 14px;
+  }
+  h2{
+    margin:0 0 16px; font-size:clamp(23px,3.6vw,34px);
+    line-height:1.3; letter-spacing:-.01em; font-weight:750;
+  }
+  .lead{ margin:0; max-width:56ch; color:var(--mute); font-size:16px; }
+  .lead + .lead{ margin-top:14px; }
+
+  /* ── 三步：复刻产品里的步骤条，因为这就是产品本身 ── */
+  .steps{ display:grid; grid-template-columns:repeat(3,1fr); margin-top:56px; }
+  .step{ position:relative; padding-right:32px; }
+  .step:last-child{ padding-right:0; }
+  /* 连接线只画「本格小球右缘 → 格尾」这一段；下一格小球紧接在它的格首，
+     三段首尾相接连成一条，不用去算半格宽度，也不会在末格外漏出线头。 */
+  .step .wire-r{
+    position:absolute; top:19px; left:38px; right:0; height:1px; background:var(--line);
+  }
+  .step .pill{
+    position:relative; z-index:1;
+    display:inline-flex; align-items:center; justify-content:center;
+    width:38px; height:38px; border-radius:999px;
+    background:var(--ink); color:#fff;
+    font-family:var(--mono); font-size:15px; font-weight:600;
+  }
+  .step:last-child .wire-r{ display:none; }
+  .step h3{ margin:20px 0 8px; font-size:17px; font-weight:700; letter-spacing:-.005em; }
+  .step p{ margin:0; font-size:14.5px; line-height:1.7; color:var(--mute); }
+  .step .tag{
+    display:block; margin-top:auto; padding-top:14px;
+    font-family:var(--mono); font-size:11.5px; color:#9AA0A4; letter-spacing:.02em;
+  }
+
+  /* ── 特性：定义列表，不做卡片网格 ──────────────── */
+  .feats{ margin-top:52px; border-top:1px solid var(--line); }
+  .feat{
+    display:grid; grid-template-columns:220px 1fr; gap:8px 40px;
+    padding:26px 0; border-bottom:1px solid var(--line);
+  }
+  .feat dt{ font-weight:700; font-size:16px; }
+  .feat dt span{
+    display:block; margin-top:6px;
+    font-family:var(--mono); font-size:11px; font-weight:400;
+    letter-spacing:.1em; text-transform:uppercase; color:#9AA0A4;
+  }
+  .feat dd{ margin:0; font-size:15px; line-height:1.8; color:var(--mute); }
+  .feat dd code{
+    font-family:var(--mono); font-size:.88em;
+    background:#E7E9E6; padding:2px 6px; border-radius:4px; color:#3D4247;
+  }
+
+  /* ── 快速开始 ─────────────────────────────────── */
+  .start{ background:var(--void); color:#EDEFEE; }
+  .start h2{ color:#EDEFEE; }
+  .start .eyebrow{ color:var(--mark); }
+  .start p{ color:#A8AFB4; }
+  .start code{
+    font-family:var(--mono); font-size:.88em;
+    background:#2A2E31; padding:2px 6px; border-radius:4px; color:#D8DDE1;
+  }
+  pre{
+    margin:32px 0 0; padding:24px;
+    background:var(--void-2); border:1px solid var(--wire); border-radius:12px;
+    overflow-x:auto; font-family:var(--mono); font-size:13.5px; line-height:2;
+    color:#D6DBDF;
+  }
+  pre .c{ color:#7C848A; }
+  pre .k{ color:#EDEFEE; font-weight:600; }
+  .note{
+    display:flex; gap:14px; align-items:flex-start;
+    margin-top:28px; padding:18px 20px;
+    border:1px solid #4A3330; border-left:3px solid var(--mark); border-radius:8px;
+    background:#1B1A1B; color:#C9B8B6; font-size:14.5px; line-height:1.75;
+  }
+  .note b{
+    flex:none; font-family:var(--mono); font-size:11px; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--mark); padding-top:4px;
+  }
+
+  .req{ display:flex; flex-wrap:wrap; gap:10px; margin-top:28px; }
+  .req span{
+    font-family:var(--mono); font-size:11.5px; letter-spacing:.06em;
+    border:1px solid var(--wire); border-radius:999px; padding:5px 12px; color:#98A0A5;
+  }
+
+  footer{ padding:40px 0 56px; }
+  .foot{
+    display:flex; flex-wrap:wrap; gap:12px 28px;
+    align-items:center; justify-content:space-between;
+    font-family:var(--mono); font-size:12px; color:#8B9195;
+  }
+  .foot a{ text-decoration:none; border-bottom:1px solid var(--line); }
+  .foot a:hover{ color:var(--ink); border-color:var(--ink); }
+
+  @media (max-width:720px){
+    .feat{ grid-template-columns:1fr; gap:4px; }
+    /* 三步转竖排：连接线跟着转，编号移到左侧做轴 */
+    .steps{ grid-template-columns:1fr; gap:34px; }
+    .step{ padding-left:52px; padding-right:0; }
+    .step .wire-r{ display:none; }
+    .step .pill{ position:absolute; left:0; top:0; }
+    .step h3{ margin-top:8px; }
+    .step::before{
+      content:""; position:absolute; left:19px; top:44px; bottom:-34px; width:1px; background:var(--line);
+    }
+    .step:last-child::before{ display:none; }
+  }
+  @media (prefers-reduced-motion:reduce){
+    html{ scroll-behavior:auto; }
+    h1,.vf-lead,.cf{ animation:none; }
+    .btn{ transition:none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="vf">
+  <div class="wrap">
+    <div class="vf-top">
+      <b>出片助手</b>
+      <span>shooting-plan</span>
+    </div>
+
+    <div class="frame">
+      <i class="cf tl"></i><i class="cf tr"></i><i class="cf bl"></i><i class="cf br"></i>
+
+      <h1>先把话聊清楚，<br />再按快门。</h1>
+      <p class="vf-lead">
+        用一句话说清你想怎么拍，附上模特图、场景图也行。AI 不急着出方案——先跟你把风格、服装、道具、动作聊拢，归纳成一份<strong>拍摄约定</strong>，你点头之后才生成。
+      </p>
+
+      <div class="spec">
+        <span>零后端</span>
+        <span>Key 在你自己手里</span>
+        <span>一次三套</span>
+      </div>
+
+      <div class="acts">
+        <a class="btn btn-p" href="https://github.com/xizo5/shooting-plan">在 GitHub 上查看 →</a>
+        <a class="btn btn-s" href="#start">快速开始</a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="rule" aria-hidden="true"></div>
+
+<section id="flow">
+  <div class="wrap">
+    <p class="eyebrow">一 / 流程</p>
+    <h2>三步走，聊在前，拍在后</h2>
+    <p class="lead">大部分 AI 出图工具是「输入 → 等结果」。拍摄这件事不一样：风格没谈拢就生成，出来的一定得返工。所以这里把「聊」单独做成一步。</p>
+
+    <div class="steps">
+      <div class="step">
+        <i class="wire-l"></i><i class="wire-r"></i>
+        <div class="pill">1</div>
+        <h3>说想法</h3>
+        <p>描述你想拍什么，最多附 4 张参考图——模特图或场景图都行。机位会贴着场景图里的真实站位写，动作会贴着模特图的气质来。</p>
+        <span class="tag">brief · 自由输入</span>
+      </div>
+      <div class="step">
+        <i class="wire-r"></i>
+        <div class="pill">2</div>
+        <h3>定约定</h3>
+        <p>AI 逐字流式地把风格、服装、道具、动作跟你聊一遍。聊完归纳成一张卡：风格调性、服装、道具、动作与情绪、其他约束，五个字段逐条可改。</p>
+        <span class="tag">consensus · 可复核可修改</span>
+      </div>
+      <div class="step">
+        <i class="wire-r"></i>
+        <div class="pill">3</div>
+        <h3>出方案</h3>
+        <p>约定锁死风格，AI 并行展开成 3 套同一调性、不同场景的完整文字策划，顶部切换对比。每套必带 1 个备用场景——下雨、人多、光线不对时直接换。</p>
+        <span class="tag">plan · 3 套并行</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="rule" aria-hidden="true"></div>
+
+<section>
+  <div class="wrap">
+    <p class="eyebrow">二 / 能力</p>
+    <h2>它替你省掉的那些返工</h2>
+    <p class="lead">不追求「一句话出大片」。它解决的是真实的拍摄现场问题：到了地方不知道手放哪、光线不对没有 Plan B、摄影师问你要什么风格你说不上来。</p>
+
+    <dl class="feats">
+      <div class="feat">
+        <dt>聊的时候是逐字出的<span>stream</span></dt>
+        <dd>讨论环节走 SSE 流式输出，字是一个一个蹦出来的，不用盯着空白等一整个段落。中文字符被网络切成半个也不会乱码——只按换行切分，残缺的行留在缓冲区等下一块。</dd>
+      </div>
+      <div class="feat">
+        <dt>参考片按需生成<span>on demand</span></dt>
+        <dd>看完文字方案，觉得哪个画面拿不准再点那一下。不自动烧钱，也不把 3 套 × 每套好几个画面的图一次性全生成出来堆在屏幕上。</dd>
+      </div>
+      <div class="feat">
+        <dt>没配生图也能用<span>fallback</span></dt>
+        <dd>内置一套简笔画姿势库，零成本、永远兜底。生图模型是可选增强——不配就是纯文字策划加简笔画，功能不失血。</dd>
+      </div>
+      <div class="feat">
+        <dt>存成长图带去现场<span>export</span></dt>
+        <dd>整套策划导出成一张竖版长图，生成好的参考片会一起排进每个画面。手机上翻着就能照着拍，不用在现场重新登录某个网站。</dd>
+      </div>
+      <div class="feat">
+        <dt>手抖点不出两套<span>guard</span></dt>
+        <dd>生成按钮用同步锁互斥，不是只看按钮的禁用态。React 的状态更新是异步的，同一批点击里禁用态挡不住第二次——锁能。按下立刻翻到第 3 步，等待动画独占一屏，完成或失败都有明确反馈。</dd>
+      </div>
+      <div class="feat">
+        <dt>模型看不了图就脱图重试<span>degrade</span></dt>
+        <dd>不是所有模型都支持多模态。带图请求失败时自动去掉图片重试一次，并明确告诉你「当前模型看不了图」，而不是丢一个报错让你猜。</dd>
+      </div>
+    </dl>
+  </div>
+</section>
+
+<div class="rule" aria-hidden="true"></div>
+
+<section class="start" id="start">
+  <div class="wrap">
+    <p class="eyebrow">三 / 部署</p>
+    <h2>clone 下来，配好 Key，跑起来就是你的</h2>
+    <p class="lead">没有后端，没有账号，没有额度。浏览器直连厂商的 OpenAI 兼容接口，Key 由 <code>.env</code> 在构建期注入。</p>
+
+    <pre><span class="c"># 需要 Node 18+</span>
+<span class="k">git clone</span> https://github.com/xizo5/shooting-plan
+<span class="k">cd</span> shooting-plan
+<span class="k">npm install</span>
+<span class="k">cp</span> .env.example .env   <span class="c"># 然后填自己的 API Key</span>
+<span class="k">npm run dev</span>            <span class="c"># 浏览器打开提示的地址</span></pre>
+
+    <div class="note">
+      <b>注意</b>
+      <span>Vite 会把 <code>VITE_*</code> 变量明文编译进 JS 产物，<code>dist/</code> 里能直接搜到 Key。自己 clone 自己跑没问题（填的是你自己的 Key），但<strong>不要把带 Key 的 <code>dist/</code> 部署到公开地址</strong>——那等于公开自己的 Key。所以这个站点只是介绍页，不提供在线试用版。</span>
+    </div>
+
+    <div class="req">
+      <span>Node 18+</span>
+      <span>npm</span>
+      <span>一个 OpenAI 兼容的接口</span>
+      <span>看图需 glm-4v / qwen-vl 一类</span>
+      <span>生图可选 · 豆包 Seedream</span>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot">
+    <span>出片助手 · AI 拍摄策划</span>
+    <a href="https://github.com/xizo5/shooting-plan">github.com/xizo5/shooting-plan</a>
+  </div>
+</footer>
+
+</body>
+</html>
