@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Brief } from '../types'
 import { compressDataUrl, fileToDataUrl } from '../lib/image'
+import { MOD, isSubmit } from '../lib/keys'
 
 const MAX_IMAGES = 4
 
@@ -14,8 +15,20 @@ interface Props {
 
 export default function BriefForm({ value, onChange, onSubmit, busy }: Props) {
   const [uploading, setUploading] = useState(false)
+  const textRef = useRef<HTMLTextAreaElement>(null)
+
+  // 这一页打开就是想写字，光标别让用户自己去点（手机上无感：不弹软键盘）
+  useEffect(() => {
+    textRef.current?.focus()
+  }, [])
 
   const ready = value.text.trim() || value.referenceImages.length > 0
+
+  /** 提交的唯一出口：按钮和 Ctrl/Cmd+Enter 共用，免得两条路径的守卫写歪 */
+  const submit = () => {
+    if (!ready || busy) return
+    onSubmit(value)
+  }
 
   const handleFiles = async (files: FileList | null) => {
     if (!files?.length) return
@@ -59,8 +72,16 @@ export default function BriefForm({ value, onChange, onSubmit, busy }: Props) {
         <div className="lg:col-start-1 lg:row-start-1">
           <label className="mb-1 block text-sm font-medium">拍摄想法</label>
           <textarea
+            ref={textRef}
             value={value.text}
             onChange={(e) => onChange({ ...value, text: e.target.value })}
+            onKeyDown={(e) => {
+              // 单独 Enter 仍是换行：想法常常要分几行写
+              if (isSubmit(e)) {
+                e.preventDefault()
+                submit()
+              }
+            }}
             rows={4}
             placeholder={'想怎么拍都可以，比如：\n"周日下午想和女朋友在西湖拍一组偏过曝的日系小清新"\n也可以只发图，AI 会看图和你聊'}
             className="w-full resize-none rounded-xl border border-neutral-200 px-3 py-2.5 outline-none focus:border-neutral-900 lg:min-h-[200px]"
@@ -115,11 +136,14 @@ export default function BriefForm({ value, onChange, onSubmit, busy }: Props) {
         </div>
 
         <button
-          onClick={() => onSubmit(value)}
+          onClick={submit}
           disabled={!ready || busy}
           className="w-full rounded-xl bg-neutral-900 py-3.5 font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-30 lg:col-start-1 lg:row-start-2 lg:max-w-xs"
         >
           {busy ? '正在准备讨论…' : '开始聊拍摄思路'}
+          <kbd className="ml-2 hidden rounded border border-white/25 px-1.5 py-0.5 text-xs font-normal text-white/60 lg:inline">
+            {MOD} ↵
+          </kbd>
         </button>
       </div>
     </div>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Brief, Consensus } from '../types'
+import { MOD, isSubmit } from '../lib/keys'
 
 interface Props {
   brief: Brief
@@ -42,6 +43,12 @@ export default function Confirm({ brief, consensus, onChange, onConfirm, onBackT
     if (JSON.stringify(draft) !== JSON.stringify(consensus)) onChange(draft)
   }
 
+  /** 生成的唯一出口：按钮和字段里的 Ctrl/Cmd+Enter 共用，先落盘再走 */
+  const submit = () => {
+    commit()
+    onConfirm()
+  }
+
   const filled = FIELDS.filter(({ key }) => draft[key].trim()).length
 
   return (
@@ -76,6 +83,13 @@ export default function Confirm({ brief, consensus, onChange, onConfirm, onBackT
               value={draft[key]}
               onChange={(e) => set(key, e.target.value)}
               onBlur={commit}
+              onKeyDown={(e) => {
+                // 改完这一格不用去找按钮：任何一格上按 Ctrl/Cmd+Enter 都直接出方案
+                if (isSubmit(e)) {
+                  e.preventDefault()
+                  submit()
+                }
+              }}
               rows={rows}
               placeholder={hint}
               className="w-full resize-none rounded-lg border border-neutral-200 px-3 py-2 text-sm leading-relaxed outline-none focus:border-neutral-900"
@@ -94,13 +108,13 @@ export default function Confirm({ brief, consensus, onChange, onConfirm, onBackT
       <div className="space-y-2 pb-2 lg:max-w-sm">
         {/* 生成一开始就跳进第 3 步，所以这里没有"生成中"态，也不需要禁用 */}
         <button
-          onClick={() => {
-            commit()
-            onConfirm()
-          }}
+          onClick={submit}
           className="w-full rounded-xl bg-neutral-900 py-3.5 font-medium text-white transition-colors hover:bg-neutral-800"
         >
           就按这个生成
+          <kbd className="ml-2 hidden rounded border border-white/25 px-1.5 py-0.5 text-xs font-normal text-white/60 lg:inline">
+            {MOD} ↵
+          </kbd>
         </button>
         <button
           onClick={onBackToDiscuss}

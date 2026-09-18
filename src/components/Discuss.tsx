@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Brief, ChatMessage, Consensus } from '../types'
+import { MOD, isSubmit } from '../lib/keys'
 import { TypingDots } from './Loading'
 
 interface Props {
@@ -29,6 +30,12 @@ export default function Discuss({
 }: Props) {
   const [draft, setDraft] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  // 进来说话就对了。流式回复会重渲染，但空依赖只聚焦一次，不会从别处抢焦点
+  useEffect(() => {
+    inputRef.current?.focus()
+  }, [])
 
   /**
    * 新消息进来时滚到底。
@@ -48,6 +55,14 @@ export default function Discuss({
     if (!text || busy) return
     setDraft('')
     onSend(text)
+  }
+
+  /** 已经有像样的 AI 回复 —— 聊到这个份上才谈得上"整理" */
+  const hasReply = messages.some((m) => m.role === 'assistant' && m.content.trim())
+  /** 触发整理的唯一出口：按钮和 Ctrl/Cmd+Enter 共用同一套守卫 */
+  const summarize = () => {
+    if (!hasReply || busy || summarizing) return
+    onSummarize()
   }
 
   /** 约定出来了就让位给第 2 步，本页只留聊天记录供回看 */
@@ -119,21 +134,31 @@ export default function Discuss({
 
           {!frozen && (
             <>
-              {!busy && messages.some((m) => m.role === 'assistant' && m.content.trim()) && (
+              {hasReply && !busy && (
                 <button
-                  onClick={onSummarize}
+                  onClick={summarize}
                   disabled={summarizing}
                   className="w-full rounded-xl border border-neutral-900 py-3 text-sm font-medium text-neutral-900 transition-colors hover:bg-neutral-900/5 disabled:opacity-40"
                 >
                   {summarizing ? '正在整理…' : '聊得差不多了，整理成拍摄约定'}
+                  <kbd className="ml-2 hidden rounded border border-neutral-900/25 px-1.5 py-0.5 text-xs font-normal text-neutral-400 lg:inline">
+                    {MOD} ↵
+                  </kbd>
                 </button>
               )}
 
               <div className="flex gap-2">
                 <textarea
+                  ref={inputRef}
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={(e) => {
+                    // Enter 是发消息（聊天习惯），Ctrl/Cmd+Enter 才是"聊完了，往下走"
+                    if (isSubmit(e)) {
+                      e.preventDefault()
+                      summarize()
+                      return
+                    }
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault()
                       submit()

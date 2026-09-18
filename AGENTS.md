@@ -112,8 +112,9 @@ step 3  出方案（view: generating → plan）
 | ① 讨论 | 单列聊天 | 多一列常驻侧栏，显示「你要拍什么」 |
 | ② 定约定 | 字段竖排 | 字段 `grid-cols-2` |
 | ③ 生成中 | 卡片撑满 | `lg:max-w-md` 居中 |
-| ③ 出方案 | 镜头卡竖排 | 镜头卡 `grid-cols-2` |
+| ③ 出方案 | 镜头卡竖排 | 镜头卡 `grid-cols-2` + 左侧常驻场景目录 |
 | 我的策划 | 单列 | `grid-cols-2` |
+| 键盘 | 无 | `Ctrl/Cmd+Enter` 一路推进、`Esc` 放弃生成（见下节） |
 
 几条容易踩的：
 
@@ -130,6 +131,42 @@ step 3  出方案（view: generating → plan）
 **验证 PC 布局别靠肉眼看图。** 把关键元素的 `getBoundingClientRect()` 写进 `<html data-*>`，再用 `--dump-dom` 读回来
 （探针写法见 `local-page-screenshot` skill 第三节）。本轮就靠它才判定"header 比内容窄"是错觉、侧栏其实已经撑满——
 而读渲染图估坐标，缩放之后能偏出上百像素。截图只用来判断观感和有没有横向溢出。
+
+## PC 交互：一个推进键 + 一条场景目录
+
+布局变宽之后顺手补的，同样只加在宽屏上、手机不受影响。
+
+**`Ctrl/Cmd+Enter` 是三步里唯一的"推进"键。** 用户在每一步做的其实是同一件事——「这步我说完了，往下走」——
+配三个键不如配一个。判定收在 `src/lib/keys.ts` 的 `isSubmit()`，纯函数，`npm run test:keys` 钉住边界。
+
+| 页面 | 单独 Enter | Ctrl/Cmd+Enter |
+|---|---|---|
+| ① 说想法 | 换行 | 提交 |
+| ① 讨论 | 发消息 | 整理成拍摄约定 |
+| ② 定约定 | 换行 | 生成方案（5 个字段上通用） |
+| ③ 生成中 | — | `Esc` 放弃，退回第 2 步 |
+
+- **Esc 只挂在生成中那一屏**。其他页面都有输入框，Esc 会和输入法的候选框取消打架；这一屏纯等待、没有输入焦点，才是它该干活的地方。
+- **"推进"和"取消"各只有一个出口**：`BriefForm.submit()` / `Discuss.summarize()` / `Confirm.submit()` 都是按钮和键盘共用的。
+  两条路径各写一套守卫（`ready` / `busy` / `summarizing`），迟早会写歪。
+- **快捷键要标出来**（`<kbd>`，`hidden lg:inline`）。没人会去猜，标了才算数；手机上不显示。
+- **进入输入页自动聚焦**（`useRef` + 空依赖 `useEffect`，只跑一次，不会从别处抢焦点）。
+
+**放弃生成要真的作数。** `genToken` 每次生成自增，`Esc` 或「不想等了」把它 +1；异步链醒来发现号变了就不再动视图，
+`finally` 里的锁也只管自己那一轮。否则：刚取消几秒，那次生成跑完又把你拽回方案页。
+
+**方案页的宽屏场景目录**（`PlanView`）：
+
+- 只在 `plan.scenes.length > 1` 时渲染，`hidden lg:sticky lg:top-6`。窄屏是 `hidden`，所以**外层不能带 `space-y-*`**——
+  隐藏的子元素照样触发 `> * + *`，会把正文白白推下 24px。间距一律由里层正文自己管。
+- 高亮用 `scroll` 事件 + `getBoundingClientRect().top <= 120` 线性扫一遍，**不用 `IntersectionObserver`**：
+  同时可见多个时它分不清谁主谁次，得反复调 `rootMargin`。场景就几个，扫描更直白；同值 `setActive` 会被 React 跳过，不必节流。
+- `nav` 要带 `aria-label="场景目录"`：顶部步骤条也是 `nav` + 黑底胶囊，不带标签的话查询和探针都会撞车。
+- `section` 上加 `scroll-mt-6`，smooth 定位后标题才不贴着视口顶边，也和目录的判定基准线对得上。
+
+**验证交互别只靠截图。** 滚动高亮这类"看不见的状态"要上探针（`local-page-screenshot` skill 第三节）。
+这一轮探针连坑两次：虚拟时钟下 `rAF` 和 scroll 事件都不推进（等不到，得手动 `dispatchEvent`），
+而 `dispatchEvent` 之后又必须等一个 tick 再读 DOM——`setActive` 只是排队，React 的调度不在那儿同步落地。
 
 ## 配置来源：`.env` 是唯一入口
 

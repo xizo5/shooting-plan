@@ -79,6 +79,11 @@ export default function App() {
    * ref 是同步的，用它兜住，state 只负责 UI 禁用态。
    */
   const generating = useRef(false)
+  /**
+   * 本次生成的编号。等待期间用户按 Esc 或点「不想等了」时自增，
+   * 异步链醒来发现号变了就不再动视图 —— 否则刚取消几秒又被拽去方案页。
+   */
+  const genToken = useRef(0)
 
   const plan = batchPlans[planIndex] ?? null
 
@@ -273,6 +278,7 @@ export default function App() {
     // 防抖：真实耗时几十秒，用户等急了会连点。ref 是同步的，挡得住同一批点击
     if (generating.current) return
     generating.current = true
+    const token = ++genToken.current
     setError(null)
     setNotice(null)
     setToast(null)
@@ -319,6 +325,8 @@ export default function App() {
         notices.push(`${results.length - ok.length} 个场景方案生成失败，已展示成功的部分`)
       }
       if (notices.length > 0) setNotice(notices.join('；'))
+      // 已经放弃的话，方案其实已落库（上面的 savePlan），只是别再动视图
+      if (token !== genToken.current) return
       setBatchPlans(ok)
       setPlanIndex(0)
       setView('plan')
@@ -329,14 +337,44 @@ export default function App() {
           : '已生成 1 套场景方案 · 已存到「我的策划」',
       )
     } catch (err) {
+      // 已放弃：别把用户从别的页面拽回确认页报一个他已经不在乎的错
+      if (token !== genToken.current) return
       setError(err instanceof Error ? err.message : '生成失败，请重试')
       // 失败退回第 2 步：约定还在，改两笔就能重试，不必重新聊一遍
       setView('confirm')
     } finally {
-      generating.current = false
-      setStage(null)
+      // 已被取消 / 已开了新一轮的话，锁和阶段归它们管，这里别插手
+      if (token === genToken.current) {
+        generating.current = false
+        setStage(null)
+      }
     }
   }
+
+  /** 放弃本次生成，退回第 2 步。按钮和 Esc 共用 */
+  const cancelGenerating = () => {
+    genToken.current++
+    generating.current = false
+    setStage(null)
+    setView('confirm')
+  }
+
+  /**
+   * 生成中页按 Esc = 放弃。
+   *
+   * 全站只有这里挂 Esc：其他页面都有输入框，Esc 会跟输入法的候选框取消打架；
+   * 而这一屏纯等待，没有输入焦点，正是 Esc 该干活的地方。
+   */
+  useEffect(() => {
+    if (view !== 'generating') return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') cancelGenerating()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // cancelGenerating 只碰 setState 和 ref，都是稳定的，不必进依赖
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view])
 
   const imageGenConfig = () => {
     if (!config?.imageGen) return null
@@ -538,14 +576,13 @@ export default function App() {
           <div className="shrink-0 border-t border-neutral-200/70 pb-4 pt-3 lg:mx-auto lg:w-full lg:max-w-md">
             {/* 出口固定住：真卡住了不至于困在这一屏 */}
             <button
-              onClick={() => {
-                generating.current = false
-                setStage(null)
-                setView('confirm')
-              }}
+              onClick={cancelGenerating}
               className="w-full rounded-xl py-2.5 text-sm text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
             >
               不想等了，回上一步
+              <kbd className="ml-2 hidden rounded border border-neutral-300 px-1.5 py-0.5 text-xs font-normal text-neutral-400 lg:inline">
+                Esc
+              </kbd>
             </button>
           </div>
         </div>
