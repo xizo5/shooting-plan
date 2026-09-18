@@ -66,7 +66,7 @@ function readLocalConfig(): ModelConfig | null {
     if (config.imageGen && config.imageGen.model === 'cogview-3-flash') {
       config.imageGen = { ...config.imageGen, model: 'glm-image', size: '1056x1568' }
     }
-    // deepseek-chat 旧模型名已停用（2026-07-24），指向 deepseek-v4-flash
+    // deepseek-chat 旧模型名已停用（2026-07-24），指向 deepseek-v4-flash（支持看图）
     if (config.presetId === 'deepseek' && config.model === 'deepseek-chat') {
       config.model = 'deepseek-v4-flash'
     }

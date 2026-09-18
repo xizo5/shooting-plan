@@ -18,7 +18,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     baseURL: 'https://api.deepseek.com',
     model: 'deepseek-v4-flash',
     keyURL: 'https://platform.deepseek.com/api_keys',
-    note: '便宜、中文好，推荐',
+    note: '便宜、中文好，支持看图，推荐',
   },
   {
     id: 'zhipu',

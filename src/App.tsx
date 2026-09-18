@@ -167,7 +167,7 @@ export default function App() {
         discussOpeningPrompt(b.text, b.referenceImages.length > 0),
         [],
         b.referenceImages,
-        () => setNotice('当前模型看不了图，已忽略参考图继续讨论。想贴着参考图聊，请换支持看图的模型（如智谱 glm-4v-flash）'),
+        () => setNotice('当前模型看不了图，已忽略参考图继续讨论。想贴着参考图聊，请换支持看图的模型（如 deepseek-v4-flash）'),
       )
     } catch (err) {
       setError(err instanceof Error ? err.message : '讨论开场失败，请重试')
@@ -192,7 +192,7 @@ export default function App() {
         text,
         [...prior, { role: 'user', content: text }],
         discussBrief.referenceImages,
-        () => setNotice('当前模型看不了图，已忽略参考图继续讨论。想贴着参考图聊，请换支持看图的模型（如智谱 glm-4v-flash）'),
+        () => setNotice('当前模型看不了图，已忽略参考图继续讨论。想贴着参考图聊，请换支持看图的模型（如 deepseek-v4-flash）'),
       )
     } catch (err) {
       // 回复失败时把用户那条也撤掉，避免历史里留下没有回应的孤句
@@ -298,7 +298,7 @@ export default function App() {
         })
       } catch (err) {
         if (!hasImages) throw err
-        notices.push('当前模型看不了图，已忽略参考图生成。想让方案贴着参考图出，请换支持看图的模型（如智谱 glm-4v-flash）')
+        notices.push('当前模型看不了图，已忽略参考图生成。想让方案贴着参考图出，请换支持看图的模型（如 deepseek-v4-flash）')
         data = await chatJson(config, cardsSystem(), cardsUserPrompt(b.text, false, consensus))
       }
       const dirs = (data.directions ?? []).filter((d) => d.name && d.tagline)

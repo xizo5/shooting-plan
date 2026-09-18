@@ -130,8 +130,8 @@ export default function BriefForm({ value, onChange, onSubmit, busy }: Props) {
             )}
           </div>
           <p className="mt-1.5 text-xs leading-relaxed text-neutral-400">
-            传模特图：机位和动作会贴合这个人的气质；传场景图：机位落在真实环境里。发图需要模型支持看图（如智谱
-            glm-4v-flash），不支持看图的模型会忽略图片只按文字出方案
+            传模特图：机位和动作会贴合这个人的气质；传场景图：机位落在真实环境里。发图需要模型本身支持看图（如
+            deepseek-v4-flash），不支持看图的模型会忽略图片只按文字出方案
           </p>
         </div>
 

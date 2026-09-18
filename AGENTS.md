@@ -184,6 +184,10 @@ step 3  出方案（view: generating → plan）
 - 所有指向设置页的错误文案已改为指向 `.env`（`src/lib/llm.ts`、`App.tsx`、`PlanView.tsx`）。新增提示不要再说「去设置页」。
 - 类型声明在 `src/vite-env.d.ts`，新增环境变量必须同步补上，否则 tsc 不认。
 
+**主模型必须支持看图**，否则参考图（图生图）链路是安静的断的：请求照发、图被忽略，用户只在事后收到一条 notice。
+默认的 `deepseek-v4-flash` 支持看图，别再写"要换智谱 glm-4v-flash"——那是过时的判断
+（2026-09-18 核实，见 `~/.workbuddy/MEMORY.md`）。文案与 `PROVIDER_PRESETS` 的 `note` 都已同步。
+
 ⚠️ **`VITE_*` 会被明文编译进 `dist/` 产物**——这是 Vite 的既定行为，不是 bug。对自己 clone 自己跑的场景可接受（填的是自己的 key），但**带 key 的 `dist/` 不得部署到公开地址**。若将来要提供在线服务，必须改为后端代管 key（即取代 ADR-0001），不能靠 `.env` 硬撑。
 
 ## 包管理器：只用 npm
