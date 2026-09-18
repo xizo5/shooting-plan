@@ -100,6 +100,37 @@ step 3  出方案（view: generating → plan）
 - `sp:config` — 单个 `ModelConfig`
 - `sp:plans` — `ShootPlan[]`，最新的在前
 
+## 端适配：手机是默认，PC 只做加法
+
+主场景是拍摄前掏手机看策划，所以**移动端是基准，PC 只是增强**。
+做法统一成一句：**只加 `lg:`（≥1024px）前缀，基础类一律不动** —— 手机上的表现永远等于"没写适配之前"。
+
+| 位置 | 手机（默认） | PC（`lg:`） |
+|---|---|---|
+| 根容器 | `max-w-md`(448) 居中 | `lg:max-w-5xl`(1024) |
+| ① 说想法 | 单列 | 两栏：左输入 + 按钮 / 右参考图 |
+| ① 讨论 | 单列聊天 | 多一列常驻侧栏，显示「你要拍什么」 |
+| ② 定约定 | 字段竖排 | 字段 `grid-cols-2` |
+| ③ 生成中 | 卡片撑满 | `lg:max-w-md` 居中 |
+| ③ 出方案 | 镜头卡竖排 | 镜头卡 `grid-cols-2` |
+| 我的策划 | 单列 | `grid-cols-2` |
+
+几条容易踩的：
+
+- **PC 专属元素一律 `hidden lg:flex`**，不要用 JS 读窗口宽度。讨论页那条侧栏就是这么加的。
+- **重排靠 `col-start` / `row-start`，不要调 JSX 顺序**。`BriefForm` 在 lg 下把参考图挪到右栏，用的是显式网格定位——
+  直接换 JSX 位置会连手机上的「想法 → 参考图 → 按钮」顺序一起改掉。
+- **`space-y-*` 切成 grid 时必须补 `lg:space-y-0`**，否则 margin 和 gap 叠加、间距翻倍。
+- **背景色铺在 `body`（`index.css`）上**，不是根容器：根容器限宽居中，宽屏两侧露出的那部分得有人上色。
+- **"因为变宽了才需要改"的样式也走 `lg:`**。例：未到的步骤胶囊 `bg-neutral-50` 贴着页面底色，手机上是故意的"隐形"，
+  但 PC 上三格散开到 320px 一格就断了流程感，于是 `lg:bg-neutral-100 lg:text-neutral-400`。
+- **`h-full` 撑满父级的块在 PC 上必须限宽**。生成中那屏的等待卡片靠 `h-full` 填满，不限宽会被拉成一整条 1024px 白板——
+  本轮最容易漏的一处，已用 `lg:mx-auto lg:w-full lg:max-w-md` 收住。
+
+**验证 PC 布局别靠肉眼看图。** 把关键元素的 `getBoundingClientRect()` 写进 `<html data-*>`，再用 `--dump-dom` 读回来
+（探针写法见 `local-page-screenshot` skill 第三节）。本轮就靠它才判定"header 比内容窄"是错觉、侧栏其实已经撑满——
+而读渲染图估坐标，缩放之后能偏出上百像素。截图只用来判断观感和有没有横向溢出。
+
 ## 配置来源：`.env` 是唯一入口
 
 **应用内没有设置页**（入口已隐藏）。模型配置全部来自 `.env`，读取顺序：
@@ -177,8 +208,12 @@ chrome --headless --disable-gpu --no-sandbox --hide-scrollbars \
 kill %1
 ```
 
-窗口宽给 **520**：应用是 `max-w-md`(448) 居中，两侧各 36px 留白，截完裁掉即可。
+窗口宽给 **520** 出的是手机版（应用 `max-w-md`(448) 居中，两侧各 36px 留白，截完裁掉）；
+**看 PC 版就直接给 `1440`**，`lg` 断点下的两栏 / 两列布局才会出现。
 高度按内容给 —— `discuss` / `generating` 是 `h-dvh` 锁定的整屏，其余页看内容长度。
+
+⚠️ headless 里 `document.documentElement.clientWidth` 会比 `--window-size` 的宽**少 16px**（滚动条占位，加了 `--hide-scrollbars` 也照占）。
+这是环境噪声，别当成布局溢出。
 
 **四个坑（都真踩过）：**
 

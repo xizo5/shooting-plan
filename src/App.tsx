@@ -75,12 +75,6 @@ export default function App() {
   /** 生成完成后的成功提示（区别于 error/notice，带关闭按钮） */
   const [toast, setToast] = useState<string | null>(null)
   /**
-   * 本次生成对应的前置条件快照。
-   * 生成立刻切到第 3 步，确认页被卸载，所以不能在那儿读 `discussBrief` 兜底 ——
-   * 万一进入生成时草案还没同步，生成就会悄悄漏掉约定。这里在按下按钮时先钉一份。
-   */
-  const [pendingBrief, setPendingBrief] = useState<Brief>(EMPTY_DRAFT)
-  /**
    * 生成锁。state 更新是异步的，狂点按钮时下一次点击可能在重渲染前就进来了 ——
    * ref 是同步的，用它兜住，state 只负责 UI 禁用态。
    */
@@ -282,7 +276,6 @@ export default function App() {
     setError(null)
     setNotice(null)
     setToast(null)
-    setPendingBrief(b)
     // 生成一开始就踏上第 3 步：动画画在 step3 里，确认页不再被撑长
     setStage('directions')
     setView('generating')
@@ -426,15 +419,20 @@ export default function App() {
   const locked = view === 'discuss' || view === 'generating'
 
   return (
+    /*
+      宽度：手机是 max-w-md 的窄壳（448px），PC 上放开到 1024px 让各页自己重排。
+      背景色在 body 上（index.css），这里不再重复上色，避免宽屏时两侧露白边。
+      断点只用 lg 一档：<1024px 的样式全是原来的，移动端零回归。
+    */
     <div
-      className={`mx-auto flex max-w-md flex-col bg-neutral-50 px-4 ${
-        locked ? 'h-dvh overflow-hidden pb-0 pt-4' : 'min-h-dvh pb-10 pt-4'
+      className={`mx-auto flex w-full max-w-md flex-col px-4 lg:max-w-5xl lg:px-8 ${
+        locked ? 'h-dvh overflow-hidden pb-0 pt-4 lg:pt-6' : 'min-h-dvh pb-10 pt-4 lg:pb-14'
       }`}
     >
       {/* 顶部区域：header + 提示 + 步骤条。讨论页里它是固定的，不参与滚动 */}
       <div className="shrink-0">
         <header className="mb-5 flex items-center justify-between">
-          <span className="text-sm font-bold tracking-wide">出片助手</span>
+          <span className="text-sm font-bold tracking-wide lg:text-base">出片助手</span>
           <nav className="flex gap-1">
             <button
               onClick={() => nav('library')}
@@ -506,7 +504,7 @@ export default function App() {
       {view === 'confirm' &&
         (consensus ? (
           <Confirm
-            brief={pendingBrief}
+            brief={discussBrief}
             consensus={consensus}
             onChange={updateConsensus}
             onConfirm={() => {
@@ -518,13 +516,13 @@ export default function App() {
           />
         ) : (
           // 直接刷新 / 回退到这一步但没有约定（约定不落库），退回讨论
-          <div className="space-y-3">
+          <div className="space-y-3 lg:max-w-md">
             <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-700">
               拍摄约定还没整理出来。回到上一步接着聊，聊完点「整理成拍摄约定」。
             </p>
             <button
               onClick={() => nav('discuss')}
-              className="w-full rounded-xl bg-neutral-900 py-3 text-sm font-medium text-white"
+              className="w-full rounded-xl bg-neutral-900 py-3 text-sm font-medium text-white transition-colors hover:bg-neutral-800"
             >
               回去接着聊
             </button>
@@ -537,7 +535,7 @@ export default function App() {
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain pb-6">
             {stage === 'directions' ? <CardsLoading fill /> : <PlanLoading count={3} fill />}
           </div>
-          <div className="shrink-0 border-t border-neutral-200/70 pb-4 pt-3">
+          <div className="shrink-0 border-t border-neutral-200/70 pb-4 pt-3 lg:mx-auto lg:w-full lg:max-w-md">
             {/* 出口固定住：真卡住了不至于困在这一屏 */}
             <button
               onClick={() => {
@@ -545,7 +543,7 @@ export default function App() {
                 setStage(null)
                 setView('confirm')
               }}
-              className="w-full rounded-xl py-2.5 text-sm text-neutral-500"
+              className="w-full rounded-xl py-2.5 text-sm text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
             >
               不想等了，回上一步
             </button>

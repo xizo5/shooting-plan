@@ -36,7 +36,7 @@ export function stepOf(view: View | 'generating'): Step | null {
  */
 export default function Steps({ current, onGo }: Props) {
   return (
-    <nav aria-label="流程步骤" className="mb-5 grid grid-cols-3">
+    <nav aria-label="流程步骤" className="mb-5 grid grid-cols-3 lg:mb-8">
       {STEPS.map(({ n, label }, i) => {
         const done = n < current
         const active = n === current
@@ -47,7 +47,7 @@ export default function Steps({ current, onGo }: Props) {
             {i > 0 && (
               <span
                 className={`absolute left-0 top-1/2 h-px w-1/2 -translate-y-1/2 ${
-                  done || active ? 'bg-neutral-900' : 'bg-neutral-200'
+                  done || active ? 'bg-neutral-900' : 'bg-neutral-200 lg:bg-neutral-300'
                 }`}
                 aria-hidden
               />
@@ -55,7 +55,7 @@ export default function Steps({ current, onGo }: Props) {
             {i < STEPS.length - 1 && (
               <span
                 className={`absolute right-0 top-1/2 h-px w-1/2 -translate-y-1/2 ${
-                  n < current ? 'bg-neutral-900' : 'bg-neutral-200'
+                  n < current ? 'bg-neutral-900' : 'bg-neutral-200 lg:bg-neutral-300'
                 }`}
                 aria-hidden
               />
@@ -70,7 +70,9 @@ export default function Steps({ current, onGo }: Props) {
                   ? 'bg-neutral-900 font-medium text-white'
                   : done
                     ? 'text-neutral-700 hover:bg-neutral-200/70'
-                    : 'bg-neutral-50 text-neutral-300'
+                    : // 未到的步骤：移动端胶囊跟页面底色同色、靠得近，本来就"隐形"是设计意图；
+                      // PC 上三格散开到 320px 一个，再隐形就断了流程感，所以 lg 下加深一档
+                      'bg-neutral-50 text-neutral-300 lg:bg-neutral-100 lg:text-neutral-400'
               } ${clickable ? 'cursor-pointer' : 'cursor-default'}`}
             >
               <span

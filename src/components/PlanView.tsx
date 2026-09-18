@@ -81,7 +81,7 @@ export default function PlanView({
         <button
           onClick={saveLongImage}
           disabled={saving}
-          className="shrink-0 rounded-xl bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+          className="shrink-0 rounded-xl bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-50"
         >
           {saving ? '导出中…' : '存长图'}
         </button>
@@ -89,7 +89,7 @@ export default function PlanView({
 
       {saveNote && (
         <p
-          className={`rounded-xl px-4 py-3 text-sm leading-relaxed ${
+          className={`rounded-xl px-4 py-3 text-sm leading-relaxed lg:max-w-2xl ${
             saveNote.kind === 'ok'
               ? 'bg-emerald-50 text-emerald-800'
               : saveNote.kind === 'warn'
@@ -102,11 +102,12 @@ export default function PlanView({
       )}
 
       {canGen ? (
-        <div className="space-y-2">
+        /* PC 上按钮不占满整行，跟进度条同宽对齐 */
+        <div className="space-y-2 lg:max-w-xs">
           <button
             onClick={batch?.running ? onStopBatch : onBatch}
             disabled={shotBusy !== null && !batch?.running}
-            className="w-full rounded-xl border border-neutral-900 py-2.5 text-sm font-medium text-neutral-900 disabled:opacity-40"
+            className="w-full rounded-xl border border-neutral-900 py-2.5 text-sm font-medium text-neutral-900 transition-colors hover:bg-neutral-900/5 disabled:opacity-40"
           >
             {batch?.running ? `停止（${batch.done}/${batch.total}）` : '生成全套参考片'}
           </button>
@@ -120,7 +121,7 @@ export default function PlanView({
           )}
         </div>
       ) : (
-        <p className="rounded-xl bg-neutral-100 px-4 py-2.5 text-xs text-neutral-500">
+        <p className="rounded-xl bg-neutral-100 px-4 py-2.5 text-xs text-neutral-500 lg:max-w-2xl">
           未启用参考片生成。在 .env 里填 VITE_IMAGE_API_KEY 与 VITE_IMAGE_MODEL 后重新构建，即可为每个画面生成 AI 写实参考片
         </p>
       )}
@@ -136,7 +137,8 @@ export default function PlanView({
             )}
             <span className="text-xs text-neutral-400">{scene.light}</span>
           </div>
-          <div className="space-y-3">
+          {/* PC 上同一场景的画面两列并排，方便横向对比机位 */}
+          <div className="space-y-3 lg:grid lg:grid-cols-2 lg:items-start lg:gap-4 lg:space-y-0">
             {scene.shots.map((shot, i) => {
               const key = `${si}-${i}`
               return (
@@ -163,7 +165,7 @@ export default function PlanView({
                         <button
                           onClick={() => onGenerateShot(si, i)}
                           disabled={busy}
-                          className="mt-2 rounded-lg border border-neutral-200 px-2.5 py-1 text-xs text-neutral-500 disabled:opacity-40"
+                          className="mt-2 rounded-lg border border-neutral-200 px-2.5 py-1 text-xs text-neutral-500 transition-colors hover:border-neutral-400 hover:text-neutral-800 disabled:opacity-40"
                         >
                           {shotBusy === key ? '生成中…' : '＋ 生成参考片'}
                         </button>

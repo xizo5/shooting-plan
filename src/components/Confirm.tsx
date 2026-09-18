@@ -55,13 +55,14 @@ export default function Confirm({ brief, consensus, onChange, onConfirm, onBackT
 
       {/* 原始想法回显，方便对照 */}
       {brief.text.trim() && (
-        <div className="rounded-xl bg-neutral-100 px-4 py-3">
+        <div className="rounded-xl bg-neutral-100 px-4 py-3 lg:max-w-3xl">
           <p className="text-xs text-neutral-400">你最初说的是</p>
           <p className="mt-1 line-clamp-3 text-sm leading-relaxed text-neutral-700">{brief.text}</p>
         </div>
       )}
 
-      <div className="space-y-3">
+      {/* 5 个字段：PC 上两列排开，省得在一列里滚半天 */}
+      <div className="space-y-3 lg:grid lg:grid-cols-2 lg:items-start lg:gap-3 lg:space-y-0">
         {FIELDS.map(({ key, label, hint, rows }) => (
           <div key={key} className="rounded-2xl border border-neutral-200 bg-white p-3.5">
             <div className="mb-1.5 flex items-baseline justify-between gap-2">
@@ -84,25 +85,26 @@ export default function Confirm({ brief, consensus, onChange, onConfirm, onBackT
       </div>
 
       {filled === 0 && (
-        <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-700">
+        <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-700 lg:max-w-2xl">
           一条都没聊定，将完全按你最初的描述生成。也可以回上一步多聊两句。
         </p>
       )}
 
-      <div className="space-y-2 pb-2">
+      {/* PC 上按钮不要拉满 1024px，窄一点更像回事 */}
+      <div className="space-y-2 pb-2 lg:max-w-sm">
         {/* 生成一开始就跳进第 3 步，所以这里没有"生成中"态，也不需要禁用 */}
         <button
           onClick={() => {
             commit()
             onConfirm()
           }}
-          className="w-full rounded-xl bg-neutral-900 py-3.5 font-medium text-white"
+          className="w-full rounded-xl bg-neutral-900 py-3.5 font-medium text-white transition-colors hover:bg-neutral-800"
         >
           就按这个生成
         </button>
         <button
           onClick={onBackToDiscuss}
-          className="w-full rounded-xl py-2.5 text-sm text-neutral-500"
+          className="w-full rounded-xl py-2.5 text-sm text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
         >
           还有没聊到的，回去接着聊
         </button>

@@ -75,7 +75,8 @@ function LoadingShell({ steps, hint, fill }: { steps: string[]; hint?: string; f
   return (
     <div
       className={`flex flex-col items-center gap-4 rounded-2xl border border-neutral-200 bg-white px-6 text-center ${
-        fill ? 'h-full justify-center py-10' : 'py-12'
+        // PC 上要限宽：fill 态靠 h-full 撑满父级，不限宽就会被拉成一千多像素的白条
+        fill ? 'h-full justify-center py-10 lg:mx-auto lg:w-full lg:max-w-md' : 'py-12'
       }`}
     >
       <CameraBuddy />

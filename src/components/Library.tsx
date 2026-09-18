@@ -25,29 +25,32 @@ export default function Library({ plans, onOpen, onRefresh, onBack }: Props) {
         </p>
       )}
 
-      {plans.map((plan) => (
-        <div
-          key={plan.id}
-          className="flex items-center justify-between gap-3 rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm"
-        >
-          <button className="min-w-0 text-left" onClick={() => onOpen(plan)}>
-            <h3 className="truncate font-semibold">{plan.title}</h3>
-            <p className="mt-0.5 text-xs text-neutral-500">
-              {plan.directionName} · {new Date(plan.createdAt).toLocaleDateString('zh-CN')} ·{' '}
-              {plan.scenes.reduce((n, s) => n + s.shots.length, 0)} 个画面
-            </p>
-          </button>
-          <button
-            onClick={() => {
-              deletePlan(plan.id)
-              onRefresh()
-            }}
-            className="shrink-0 rounded-lg px-2.5 py-1.5 text-xs text-neutral-400 hover:bg-neutral-100"
+      {/* PC 上两列铺开，一屏能看全 */}
+      <div className="space-y-4 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0">
+        {plans.map((plan) => (
+          <div
+            key={plan.id}
+            className="flex items-center justify-between gap-3 rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm transition-colors hover:border-neutral-300"
           >
-            删除
-          </button>
-        </div>
-      ))}
+            <button className="min-w-0 text-left" onClick={() => onOpen(plan)}>
+              <h3 className="truncate font-semibold">{plan.title}</h3>
+              <p className="mt-0.5 text-xs text-neutral-500">
+                {plan.directionName} · {new Date(plan.createdAt).toLocaleDateString('zh-CN')} ·{' '}
+                {plan.scenes.reduce((n, s) => n + s.shots.length, 0)} 个画面
+              </p>
+            </button>
+            <button
+              onClick={() => {
+                deletePlan(plan.id)
+                onRefresh()
+              }}
+              className="shrink-0 rounded-lg px-2.5 py-1.5 text-xs text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-600"
+            >
+              删除
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

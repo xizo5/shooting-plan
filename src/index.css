@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+/* 背景铺在 body 上，颜色即 neutral-50。
+   PC 宽屏下内容容器是居中限宽的，两侧会露出 body —— 只给容器上色就会看到白边。 */
+body {
+  background-color: #fafafa;
+}
+
 /* 等待动画用的少量关键帧。放在这里而不是写在组件里，
    是为了让 index.css 成为"动效的唯一出口"，将来统一尊重系统偏好也更省事。 */
 @keyframes blink {
