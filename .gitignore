@@ -36,6 +36,9 @@ pnpm-debug.log*
 # 临时调试产物（截图、注入诊断的页面副本、编译中间件）
 tmp
 
+# Vite 加载配置时生成的临时文件：正常会自动删，dev server 被强杀时会残留
+vite.config.ts.timestamp-*
+
 # 截图演示用的参考片（base64，210KB）：由 tools 临时生成，不入库
 # 重新生成见 AGENTS.md「官网截图怎么来的」
 public/shot-refs.js
